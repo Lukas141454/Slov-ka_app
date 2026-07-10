@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Slovíčka</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1e3a5f" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Slovíčka" />
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #e9e4d6; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useCallback } = React;
+
+// ---- tiny local storage wrapper mimicking the original window.storage API ----
+window.storage = {
+  async get(key) {
+    const v = localStorage.getItem(key);
+    if (v === null) return null;
+    return { key, value: v };
+  },
+  async set(key, value) {
+    localStorage.setItem(key, value);
+    return { key, value };
+  },
+};
+
+// ---- minimal inline icon set (replacing lucide-react) ----
+function Icon({ children, size = 18, color = "currentColor", className }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {children}
+    </svg>
+  );
+}
+const Check = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12" /></Icon>;
+const X = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>;
+const RotateCcw = (p) => <Icon {...p}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Icon>;
+const ArrowLeft = (p) => <Icon {...p}><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></Icon>;
+const ArrowLeftRight = (p) => <Icon {...p}><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></Icon>;
+const Loader2 = (p) => <Icon {...p} className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></Icon>;
+const Trash2 = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Icon>;
+const Plus = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>;
+const BookOpen = (p) => <Icon {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></Icon>;
+
+const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
+const STORAGE_KEY = "vocab-cards";
+const SETTINGS_KEY = "vocab-settings";
+
+function todayStr() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
+}
+function addDays(base, days) {
+  const d = new Date(base + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function VocabApp() {
+  const [screen, setScreen] = useState("home");
+  const [cards, setCards] = useState(null);
+  const [settings, setSettings] = useState({ direction: "en-cz" });
+  const [loaded, setLoaded] = useState(false);
+
+  const [rawText, setRawText] = useState("");
+  const [draftCards, setDraftCards] = useState([]);
+
+  const [queue, setQueue] = useState([]);
+  const [qIndex, setQIndex] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [sessionStats, setSessionStats] = useState({ know: 0, almost: 0, dont: 0 });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const c = await window.storage.get(STORAGE_KEY);
+        setCards(c ? JSON.parse(c.value) : []);
+      } catch {
+        setCards([]);
+      }
+      try {
+        const s = await window.storage.get(SETTINGS_KEY);
+        if (s) setSettings(JSON.parse(s.value));
+      } catch {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  const saveCards = useCallback(async (next) => {
+    setCards(next);
+    try {
+      await window.storage.set(STORAGE_KEY, JSON.stringify(next));
+    } catch (e) {
+      console.error("Storage error", e);
+    }
+  }, []);
+
+  const saveSettings = useCallback(async (next) => {
+    setSettings(next);
+    try {
+      await window.storage.set(SETTINGS_KEY, JSON.stringify(next));
+    } catch (e) {
+      console.error("Storage error", e);
+    }
+  }, []);
+
+  const dueCount = cards
+    ? cards.filter((c) => c.nextDue === null || c.nextDue <= todayStr()).length
+    : 0;
+
+  function startReview() {
+    const today = todayStr();
+    const due = cards
+      .filter((c) => c.nextDue === null || c.nextDue <= today)
+      .sort((a, b) => (a.nextDue || "") > (b.nextDue || "") ? 1 : -1)
+      .slice(0, 20);
+    setQueue(due);
+    setQIndex(0);
+    setFlipped(false);
+    setSessionStats({ know: 0, almost: 0, dont: 0 });
+    setScreen("review");
+  }
+
+  function answer(result) {
+    const card = queue[qIndex];
+    const level = card.level === null || card.level === undefined ? -1 : card.level;
+    let newLevel = level;
+    let nextDue;
+    if (result === "know") {
+      newLevel = Math.min(level + 1, INTERVALS.length - 1);
+      nextDue = addDays(todayStr(), INTERVALS[newLevel]);
+    } else if (result === "almost") {
+      newLevel = Math.max(level, 0);
+      const iv = INTERVALS[newLevel];
+      nextDue = addDays(todayStr(), Math.max(1, Math.ceil(iv / 2)));
+    } else {
+      newLevel = 0;
+      nextDue = addDays(todayStr(), 1);
+    }
+    const updated = cards.map((c) =>
+      c.id === card.id ? { ...c, level: newLevel, nextDue, lastReviewed: todayStr() } : c
+    );
+    saveCards(updated);
+    setSessionStats((s) => ({
+      ...s,
+      know: s.know + (result === "know" ? 1 : 0),
+      almost: s.almost + (result === "almost" ? 1 : 0),
+      dont: s.dont + (result === "dont" ? 1 : 0),
+    }));
+
+    if (qIndex + 1 >= queue.length) {
+      setScreen("summary");
+    } else {
+      setQIndex((i) => i + 1);
+      setFlipped(false);
+    }
+  }
+
+  function parseLinesIntoDraft(text) {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const parsed = lines
+      .map((line) => {
+        const parts = line.split(/\s+[-–—]\s+/);
+        if (parts.length >= 2) {
+          return { _id: uid(), en: parts[0].trim(), cz: parts.slice(1).join(" - ").trim() };
+        }
+        return null;
+      })
+      .filter(Boolean);
+    setDraftCards((prev) => [...prev, ...parsed]);
+    return parsed.length;
+  }
+
+  function parseText() {
+    parseLinesIntoDraft(rawText);
+    setRawText("");
+  }
+
+  const [fileError, setFileError] = useState("");
+
+  function handleFileUpload(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setFileError("");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const added = parseLinesIntoDraft(text);
+      if (added === 0) {
+        setFileError("V souboru se nenašel žádný platný řádek ve tvaru „anglicky - česky“.");
+      }
+    };
+    reader.onerror = () => setFileError("Soubor se nepodařilo přečíst.");
+    reader.readAsText(file, "UTF-8");
+  }
+
+  function updateDraft(id, field, value) {
+    setDraftCards((prev) => prev.map((c) => (c._id === id ? { ...c, [field]: value } : c)));
+  }
+  function removeDraft(id) {
+    setDraftCards((prev) => prev.filter((c) => c._id !== id));
+  }
+  function confirmDraft() {
+    const clean = draftCards.filter((c) => c.en.trim() && c.cz.trim());
+    const newCards = clean.map((c) => ({
+      id: uid(),
+      en: c.en.trim(),
+      cz: c.cz.trim(),
+      level: null,
+      nextDue: null,
+      createdAt: todayStr(),
+    }));
+    saveCards([...(cards || []), ...newCards]);
+    setDraftCards([]);
+    setRawText("");
+    setScreen("home");
+  }
+
+  function deleteCard(id) {
+    saveCards(cards.filter((c) => c.id !== id));
+  }
+
+  const styles = `
+    @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Inter:wght@400;500;600;700&display=swap');
+    .vf-root {
+      --paper: #f6f1e4;
+      --paper2: #efe8d6;
+      --ink: #1e3a5f;
+      --ink-soft: #4a6580;
+      --line: #c9d5df;
+      --red: #b23a2e;
+      --green: #3f7d52;
+      --amber: #c68a2b;
+      font-family: 'Inter', sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      min-height: 100vh;
+      max-width: 480px;
+      margin: 0 auto;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 0 40px rgba(0,0,0,0.06);
+    }
+    .vf-header {
+      padding: 28px 22px 14px;
+      border-bottom: 2px solid var(--ink);
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+    }
+    .vf-title {
+      font-family: 'Caveat', cursive;
+      font-weight: 700;
+      font-size: 34px;
+      color: var(--ink);
+    }
+    .vf-sub {
+      font-size: 12px;
+      color: var(--ink-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .vf-body { flex: 1; padding: 20px; }
+    .vf-stat-row { display: flex; gap: 12px; margin-bottom: 22px; }
+    .vf-stat {
+      flex: 1;
+      background: var(--paper2);
+      border: 1.5px solid var(--ink);
+      border-radius: 4px;
+      padding: 14px 12px;
+      text-align: center;
+    }
+    .vf-stat b { font-family: 'Caveat', cursive; font-size: 30px; display: block; line-height: 1; color: var(--ink); }
+    .vf-stat span { font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.05em; }
+    .vf-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 16px;
+      border-radius: 6px;
+      border: 2px solid var(--ink);
+      background: var(--ink);
+      color: var(--paper);
+      font-weight: 600;
+      font-size: 16px;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    .vf-btn.secondary {
+      background: transparent;
+      color: var(--ink);
+    }
+    .vf-btn:disabled { opacity: 0.45; cursor: default; }
+    .vf-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+      font-size: 13px;
+      color: var(--ink-soft);
+      margin-bottom: 20px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .vf-card-wrap {
+      perspective: 1400px;
+      height: 260px;
+      margin: 10px 0 28px;
+    }
+    .vf-card {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transition: transform 0.45s cubic-bezier(.4,.2,.2,1);
+      transform-style: preserve-3d;
+      cursor: pointer;
+    }
+    .vf-card.flipped { transform: rotateY(180deg); }
+    .vf-face {
+      position: absolute;
+      inset: 0;
+      backface-visibility: hidden;
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      background: var(--paper2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      padding: 24px;
+      text-align: center;
+      box-shadow: 4px 4px 0 rgba(30,58,95,0.18);
+    }
+    .vf-face .vf-word { font-size: 28px; font-weight: 700; word-break: break-word; }
+    .vf-face .vf-tag {
+      position: absolute;
+      top: 12px;
+      left: 16px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+    }
+    .vf-face.back { transform: rotateY(180deg); background: #fffdf6; }
+    .vf-hint { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 18px; }
+    .vf-answer-row { display: flex; gap: 10px; }
+    .vf-ans-btn {
+      flex: 1;
+      padding: 14px 6px;
+      border-radius: 6px;
+      border: 2px solid var(--ink);
+      background: white;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .vf-ans-btn.dont { border-color: var(--red); color: var(--red); }
+    .vf-ans-btn.almost { border-color: var(--amber); color: var(--amber); }
+    .vf-ans-btn.know { border-color: var(--green); color: var(--green); }
+    .vf-progress { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 14px; }
+    .vf-empty { text-align: center; padding: 40px 20px; color: var(--ink-soft); }
+    .vf-draft-row {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 10px;
+      background: white; border: 1.5px solid var(--line); border-radius: 6px; padding: 8px 10px;
+    }
+    .vf-draft-row input {
+      border: none; background: transparent; font-size: 14px; flex: 1; font-family: 'Inter', sans-serif; color: var(--ink);
+      border-bottom: 1px dashed var(--line); padding: 2px 0;
+    }
+    .vf-draft-row input:focus { outline: none; border-bottom-color: var(--ink); }
+    .vf-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; }
+    .vf-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 60px 20px; color: var(--ink-soft); }
+    .vf-list-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 4px; border-bottom: 1px solid var(--line); font-size: 14px;
+    }
+    .vf-list-item .en { font-weight: 600; }
+    .vf-list-item .cz { color: var(--ink-soft); }
+    .vf-summary-stat { display: flex; justify-content: space-around; margin: 24px 0; }
+    .vf-summary-stat div { text-align: center; }
+    .vf-summary-stat b { font-family: 'Caveat', cursive; font-size: 40px; display: block; }
+    .animate-spin { animation: vf-spin 1s linear infinite; }
+    @keyframes vf-spin { to { transform: rotate(360deg); } }
+  `;
+
+  if (!loaded) {
+    return (
+      <div className="vf-root">
+        <style>{styles}</style>
+        <div className="vf-loading">
+          <Loader2 size={28} />
+          <span>Načítám kartičky…</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="vf-root">
+      <style>{styles}</style>
+
+      {screen === "home" && (
+        <>
+          <div className="vf-header">
+            <div>
+              <div className="vf-title">Slovíčka</div>
+              <div className="vf-sub">anglicko-český sešit</div>
+            </div>
+            <BookOpen size={22} color="#1e3a5f" />
+          </div>
+          <div className="vf-body">
+            <div className="vf-stat-row">
+              <div className="vf-stat">
+                <b>{cards.length}</b>
+                <span>Celkem</span>
+              </div>
+              <div className="vf-stat">
+                <b>{dueCount}</b>
+                <span>K opakování</span>
+              </div>
+            </div>
+
+            <button className="vf-btn" disabled={dueCount === 0} onClick={startReview}>
+              <RotateCcw size={18} /> Procvičovat {dueCount > 0 ? `(${Math.min(dueCount, 20)})` : ""}
+            </button>
+            <button className="vf-btn secondary" onClick={() => setScreen("add")}>
+              <Plus size={18} /> Přidat slovíčka
+            </button>
+
+            <div
+              className="vf-toggle"
+              onClick={() => saveSettings({ ...settings, direction: settings.direction === "en-cz" ? "cz-en" : "en-cz" })}
+            >
+              <ArrowLeftRight size={14} />
+              Směr: {settings.direction === "en-cz" ? "anglicky → česky" : "česky → anglicky"}
+            </div>
+
+            {cards.length > 0 && (
+              <div>
+                <div className="vf-sub" style={{ margin: "18px 0 6px" }}>Všechny kartičky</div>
+                {cards
+                  .slice()
+                  .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                  .map((c) => (
+                    <div className="vf-list-item" key={c.id}>
+                      <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
+                      <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
+            {cards.length === 0 && (
+              <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>
+            )}
+          </div>
+        </>
+      )}
+
+      {screen === "add" && (
+        <>
+          <div className="vf-header">
+            <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
+            <div className="vf-title" style={{ fontSize: 26 }}>Nová slovíčka</div>
+            <div style={{ width: 20 }} />
+          </div>
+          <div className="vf-body">
+            <p style={{ fontSize: 13, color: "#4a6580", marginBottom: 10 }}>
+              Napiš, vlož nebo nahraj textový soubor — jeden pár na řádek, anglicky pomlčka česky:
+            </p>
+            <div style={{
+              background: "#fffdf6",
+              border: "1.5px solid #c9d5df",
+              borderRadius: 6,
+              padding: 6,
+              fontSize: 12,
+              color: "#4a6580",
+              marginBottom: 12,
+              fontFamily: "monospace",
+            }}>
+              prey on - pronásledovat<br />by chance - náhodou
+            </div>
+
+            <label className="vf-btn secondary" style={{ cursor: "pointer" }}>
+              <Plus size={18} /> Nahrát .txt soubor
+              <input
+                type="file"
+                accept=".txt,.csv,text/plain"
+                onChange={handleFileUpload}
+                style={{ display: "none" }}
+              />
+            </label>
+            {fileError && (
+              <p style={{ fontSize: 12, color: "#b23a2e", marginTop: -4, marginBottom: 12 }}>{fileError}</p>
+            )}
+
+            <div className="vf-sub" style={{ margin: "16px 0 8px", textAlign: "center" }}>nebo napiš ručně</div>
+
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder={"prey on - pronásledovat\nby chance - náhodou"}
+              rows={6}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                border: "1.5px solid #1e3a5f",
+                borderRadius: 6,
+                padding: 10,
+                fontSize: 14,
+                fontFamily: "'Inter', sans-serif",
+                marginBottom: 12,
+                resize: "vertical",
+              }}
+            />
+            <button className="vf-btn" disabled={!rawText.trim()} onClick={parseText}>
+              <Plus size={18} /> Zpracovat řádky
+            </button>
+
+            {draftCards.length > 0 && (
+              <>
+                <p style={{ fontSize: 13, color: "#4a6580", margin: "18px 0 10px" }}>
+                  Zkontroluj a uprav, pak přidej ({draftCards.length} kartiček).
+                </p>
+                {draftCards.map((c) => (
+                  <div className="vf-draft-row" key={c._id}>
+                    <input value={c.en} onChange={(e) => updateDraft(c._id, "en", e.target.value)} placeholder="english" />
+                    <span style={{ color: "#c9d5df" }}>—</span>
+                    <input value={c.cz} onChange={(e) => updateDraft(c._id, "cz", e.target.value)} placeholder="česky" />
+                    <button className="vf-icon-btn" onClick={() => removeDraft(c._id)}><X size={15} /></button>
+                  </div>
+                ))}
+                <button
+                  className="vf-btn"
+                  style={{ marginTop: 10 }}
+                  disabled={draftCards.length === 0}
+                  onClick={confirmDraft}
+                >
+                  <Plus size={18} /> Přidat {draftCards.length} kartiček
+                </button>
+                <button className="vf-btn secondary" onClick={() => setDraftCards([])}>
+                  Zahodit
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {screen === "review" && queue.length > 0 && (() => {
+        const card = queue[qIndex];
+        const front = settings.direction === "en-cz" ? card.en : card.cz;
+        const back = settings.direction === "en-cz" ? card.cz : card.en;
+        return (
+          <>
+            <div className="vf-header">
+              <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
+              <div className="vf-title" style={{ fontSize: 26 }}>Opakování</div>
+              <div style={{ width: 20 }} />
+            </div>
+            <div className="vf-body">
+              <div className="vf-progress">{qIndex + 1} / {queue.length}</div>
+              <div className="vf-card-wrap">
+                <div className={`vf-card${flipped ? " flipped" : ""}`} onClick={() => setFlipped((f) => !f)}>
+                  <div className="vf-face">
+                    <span className="vf-tag">{settings.direction === "en-cz" ? "EN" : "CZ"}</span>
+                    <div className="vf-word">{front}</div>
+                  </div>
+                  <div className="vf-face back">
+                    <span className="vf-tag">{settings.direction === "en-cz" ? "CZ" : "EN"}</span>
+                    <div className="vf-word">{back}</div>
+                  </div>
+                </div>
+              </div>
+              {!flipped && <div className="vf-hint">Klepni na kartičku pro odhalení</div>}
+              {flipped && (
+                <div className="vf-answer-row">
+                  <button className="vf-ans-btn dont" onClick={() => answer("dont")}><X size={18} />Neznám</button>
+                  <button className="vf-ans-btn almost" onClick={() => answer("almost")}>~ Skoro</button>
+                  <button className="vf-ans-btn know" onClick={() => answer("know")}><Check size={18} />Znám</button>
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
+
+      {screen === "summary" && (
+        <>
+          <div className="vf-header">
+            <div className="vf-title">Hotovo!</div>
+            <div style={{ width: 20 }} />
+          </div>
+          <div className="vf-body">
+            <div className="vf-summary-stat">
+              <div><b style={{ color: "#3f7d52" }}>{sessionStats.know}</b>znám</div>
+              <div><b style={{ color: "#c68a2b" }}>{sessionStats.almost}</b>skoro</div>
+              <div><b style={{ color: "#b23a2e" }}>{sessionStats.dont}</b>neznám</div>
+            </div>
+            <p style={{ fontSize: 13, color: "#4a6580", textAlign: "center", marginBottom: 24 }}>
+              Ta, co jsi neznal, se vrátí zítra. Ta, co znáš dobře, se vrátí až za pár dní.
+            </p>
+            <button className="vf-btn" onClick={() => setScreen("home")}>Zpět na start</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<VocabApp />);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("service-worker.js").catch((err) => {
+      console.warn("Service worker registration failed:", err);
+    });
+  });
+}
+</script>
+</body>
+</html>
