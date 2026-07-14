@@ -55,6 +55,9 @@ const Loader2 = (p) => <Icon {...p} className="animate-spin"><path d="M21 12a9 9
 const Trash2 = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Icon>;
 const Plus = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>;
 const BookOpen = (p) => <Icon {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></Icon>;
+const Pencil = (p) => <Icon {...p}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></Icon>;
+const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></Icon>;
+const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
 const STORAGE_KEY = "vocab-cards";
@@ -125,12 +128,20 @@ function VocabApp() {
     ? cards.filter((c) => c.nextDue === null || c.nextDue <= todayStr()).length
     : 0;
 
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
   function startReview() {
     const today = todayStr();
-    const due = cards
-      .filter((c) => c.nextDue === null || c.nextDue <= today)
-      .sort((a, b) => (a.nextDue || "") > (b.nextDue || "") ? 1 : -1)
-      .slice(0, 20);
+    const due = shuffle(
+      cards.filter((c) => c.nextDue === null || c.nextDue <= today)
+    ).slice(0, 20);
     setQueue(due);
     setQIndex(0);
     setFlipped(false);
@@ -177,6 +188,16 @@ function VocabApp() {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
     const parsed = lines
       .map((line) => {
+        // preferred fast format: "apple.jablko" (split at first dot)
+        const dotIdx = line.indexOf(".");
+        if (dotIdx > 0 && dotIdx < line.length - 1) {
+          return {
+            _id: uid(),
+            en: line.slice(0, dotIdx).trim(),
+            cz: line.slice(dotIdx + 1).trim(),
+          };
+        }
+        // fallback: old "apple - jablko" format, in case of pasted lists
         const parts = line.split(/\s+[-–—]\s+/);
         if (parts.length >= 2) {
           return { _id: uid(), en: parts[0].trim(), cz: parts.slice(1).join(" - ").trim() };
@@ -205,7 +226,7 @@ function VocabApp() {
       const text = ev.target.result;
       const added = parseLinesIntoDraft(text);
       if (added === 0) {
-        setFileError("V souboru se nenašel žádný platný řádek ve tvaru „anglicky - česky“.");
+        setFileError("V souboru se nenašel žádný platný řádek ve tvaru „anglicky.česky“.");
       }
     };
     reader.onerror = () => setFileError("Soubor se nepodařilo přečíst.");
@@ -234,8 +255,110 @@ function VocabApp() {
     setScreen("home");
   }
 
+  function exportCards() {
+    const payload = {
+      app: "slovicka",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings,
+      cards,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dateStr = todayStr();
+    a.href = url;
+    a.download = `slovicka-zaloha-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  const [pendingImport, setPendingImport] = useState(null);
+  const [importError, setImportError] = useState("");
+
+  function handleImportFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setImportError("");
+    setPendingImport(null);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        const importedCards = Array.isArray(data) ? data : data.cards;
+        if (!Array.isArray(importedCards)) {
+          setImportError("Soubor nemá platný formát zálohy.");
+          return;
+        }
+        const clean = importedCards
+          .filter((c) => c && typeof c.en === "string" && typeof c.cz === "string")
+          .map((c) => ({
+            id: c.id || uid(),
+            en: c.en.trim(),
+            cz: c.cz.trim(),
+            level: typeof c.level === "number" ? c.level : null,
+            nextDue: c.nextDue || null,
+            createdAt: c.createdAt || todayStr(),
+            lastReviewed: c.lastReviewed || null,
+          }));
+        if (clean.length === 0) {
+          setImportError("V souboru nejsou žádná platná slovíčka.");
+          return;
+        }
+        setPendingImport(clean);
+      } catch (err) {
+        setImportError("Soubor se nepodařilo přečíst — není to platný JSON export.");
+      }
+    };
+    reader.onerror = () => setImportError("Soubor se nepodařilo přečíst.");
+    reader.readAsText(file, "UTF-8");
+  }
+
+  function confirmImport(mode) {
+    if (!pendingImport) return;
+    if (mode === "replace") {
+      saveCards(pendingImport);
+    } else {
+      const existingKey = (c) => `${c.en.toLowerCase()}|${c.cz.toLowerCase()}`;
+      const existingSet = new Set((cards || []).map(existingKey));
+      const toAdd = pendingImport.filter((c) => !existingSet.has(existingKey(c)));
+      saveCards([...(cards || []), ...toAdd]);
+    }
+    setPendingImport(null);
+  }
+  function cancelImport() {
+    setPendingImport(null);
+    setImportError("");
+  }
+
   function deleteCard(id) {
     saveCards(cards.filter((c) => c.id !== id));
+  }
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editEn, setEditEn] = useState("");
+  const [editCz, setEditCz] = useState("");
+
+  function startEdit(card) {
+    setEditingId(card.id);
+    setEditEn(card.en);
+    setEditCz(card.cz);
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditEn("");
+    setEditCz("");
+  }
+  function saveEdit(id) {
+    if (!editEn.trim() || !editCz.trim()) return;
+    saveCards(
+      cards.map((c) => (c.id === id ? { ...c, en: editEn.trim(), cz: editCz.trim() } : c))
+    );
+    cancelEdit();
   }
 
   const styles = `
@@ -401,6 +524,29 @@ function VocabApp() {
     }
     .vf-list-item .en { font-weight: 600; }
     .vf-list-item .cz { color: var(--ink-soft); }
+    .vf-list-actions { display: flex; gap: 2px; flex-shrink: 0; }
+    .vf-search {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1.5px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+    .vf-search:focus { outline: none; border-color: var(--ink); }
+    .vf-edit-row {
+      display: flex; gap: 6px; align-items: center;
+      padding: 8px 4px; border-bottom: 1px solid var(--line);
+    }
+    .vf-edit-row input {
+      border: none; border-bottom: 1px dashed var(--line);
+      font-size: 14px; flex: 1; font-family: 'Inter', sans-serif; color: var(--ink); padding: 2px 0;
+      background: transparent;
+    }
+    .vf-edit-row input:focus { outline: none; border-bottom-color: var(--ink); }
     .vf-summary-stat { display: flex; justify-content: space-around; margin: 24px 0; }
     .vf-summary-stat div { text-align: center; }
     .vf-summary-stat b { font-family: 'Caveat', cursive; font-size: 40px; display: block; }
@@ -463,21 +609,93 @@ function VocabApp() {
             {cards.length > 0 && (
               <div>
                 <div className="vf-sub" style={{ margin: "18px 0 6px" }}>Všechny kartičky</div>
-                {cards
-                  .slice()
-                  .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-                  .map((c) => (
-                    <div className="vf-list-item" key={c.id}>
-                      <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
-                      <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  ))}
+                <input
+                  className="vf-search"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Hledat slovíčko…"
+                />
+                {(() => {
+                  const term = searchTerm.trim().toLowerCase();
+                  const filtered = cards
+                    .slice()
+                    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                    .filter(
+                      (c) =>
+                        !term ||
+                        c.en.toLowerCase().includes(term) ||
+                        c.cz.toLowerCase().includes(term)
+                    );
+                  if (filtered.length === 0) {
+                    return <div className="vf-empty">Nic nenalezeno.</div>;
+                  }
+                  return filtered.map((c) =>
+                    editingId === c.id ? (
+                      <div className="vf-edit-row" key={c.id}>
+                        <input value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
+                        <span style={{ color: "#c9d5df" }}>—</span>
+                        <input value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" />
+                        <div className="vf-list-actions">
+                          <button className="vf-icon-btn" onClick={() => saveEdit(c.id)}><Check size={16} color="#3f7d52" /></button>
+                          <button className="vf-icon-btn" onClick={cancelEdit}><X size={16} /></button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="vf-list-item" key={c.id}>
+                        <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
+                        <div className="vf-list-actions">
+                          <button className="vf-icon-btn" onClick={() => startEdit(c)}>
+                            <Pencil size={15} />
+                          </button>
+                          <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  );
+                })()}
               </div>
             )}
             {cards.length === 0 && (
               <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>
+            )}
+
+            <div className="vf-sub" style={{ margin: "24px 0 8px" }}>Záloha</div>
+            <button className="vf-btn secondary" onClick={exportCards} disabled={!cards || cards.length === 0}>
+              <Download size={18} /> Stáhnout zálohu (export)
+            </button>
+            <label className="vf-btn secondary" style={{ cursor: "pointer" }}>
+              <Upload size={18} /> Obnovit ze zálohy (import)
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFile}
+                style={{ display: "none" }}
+              />
+            </label>
+            {importError && (
+              <p style={{ fontSize: 12, color: "#b23a2e", marginTop: -4, marginBottom: 12 }}>{importError}</p>
+            )}
+            {pendingImport && (
+              <div style={{
+                background: "#fffdf6",
+                border: "1.5px solid #1e3a5f",
+                borderRadius: 6,
+                padding: 14,
+                marginBottom: 12,
+              }}>
+                <p style={{ fontSize: 13, marginTop: 0 }}>
+                  Nalezeno {pendingImport.length} slovíček v záloze. Jak je chceš přidat?
+                </p>
+                <button className="vf-btn" style={{ marginBottom: 8 }} onClick={() => confirmImport("merge")}>
+                  Sloučit s aktuálními (přeskočí duplicity)
+                </button>
+                <button className="vf-btn secondary" style={{ marginBottom: 8 }} onClick={() => confirmImport("replace")}>
+                  Nahradit vše zálohou
+                </button>
+                <button className="vf-btn secondary" onClick={cancelImport}>Zrušit</button>
+              </div>
             )}
           </div>
         </>
@@ -492,7 +710,7 @@ function VocabApp() {
           </div>
           <div className="vf-body">
             <p style={{ fontSize: 13, color: "#4a6580", marginBottom: 10 }}>
-              Napiš, vlož nebo nahraj textový soubor — jeden pár na řádek, anglicky pomlčka česky:
+              Napiš, vlož nebo nahraj textový soubor — jeden pár na řádek, anglicky tečka česky (bez mezery):
             </p>
             <div style={{
               background: "#fffdf6",
@@ -504,7 +722,7 @@ function VocabApp() {
               marginBottom: 12,
               fontFamily: "monospace",
             }}>
-              prey on - pronásledovat<br />by chance - náhodou
+              prey on.pronásledovat<br />by chance.náhodou
             </div>
 
             <label className="vf-btn secondary" style={{ cursor: "pointer" }}>
@@ -525,7 +743,7 @@ function VocabApp() {
             <textarea
               value={rawText}
               onChange={(e) => setRawText(e.target.value)}
-              placeholder={"prey on - pronásledovat\nby chance - náhodou"}
+              placeholder={"prey on.pronásledovat\nby chance.náhodou"}
               rows={6}
               style={{
                 width: "100%",
@@ -587,7 +805,7 @@ function VocabApp() {
             <div className="vf-body">
               <div className="vf-progress">{qIndex + 1} / {queue.length}</div>
               <div className="vf-card-wrap">
-                <div className={`vf-card${flipped ? " flipped" : ""}`} onClick={() => setFlipped((f) => !f)}>
+                <div key={card.id} className={`vf-card${flipped ? " flipped" : ""}`} onClick={() => setFlipped((f) => !f)}>
                   <div className="vf-face">
                     <span className="vf-tag">{settings.direction === "en-cz" ? "EN" : "CZ"}</span>
                     <div className="vf-word">{front}</div>
