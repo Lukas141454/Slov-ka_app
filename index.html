@@ -77,6 +77,38 @@ function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+// A card can have different memorization progress in each direction
+// (e.g. you know it well cz->en but not yet en->cz). Progress is stored
+// per direction key: "en-cz" and "cz-en".
+function getProgress(card, direction) {
+  if (card.progress && card.progress[direction]) return card.progress[direction];
+  return { level: null, nextDue: null, lastReviewed: null };
+}
+function withProgress(card, direction, patch) {
+  const current = getProgress(card, direction);
+  return {
+    ...card,
+    progress: {
+      ...(card.progress || {}),
+      [direction]: { ...current, ...patch },
+    },
+  };
+}
+// Older cards were saved with a single flat level/nextDue/lastReviewed
+// shared by both directions. Migrate them into the new per-direction shape,
+// using the old values as the starting point for both directions.
+function migrateCard(c) {
+  if (c.progress) return c;
+  const legacy = { level: c.level ?? null, nextDue: c.nextDue ?? null, lastReviewed: c.lastReviewed ?? null };
+  return {
+    ...c,
+    progress: {
+      "en-cz": { ...legacy },
+      "cz-en": { ...legacy },
+    },
+  };
+}
+
 function VocabApp() {
   const [screen, setScreen] = useState("home");
   const [cards, setCards] = useState(null);
@@ -97,7 +129,7 @@ function VocabApp() {
     (async () => {
       try {
         const c = await window.storage.get(STORAGE_KEY);
-        setCards(c ? JSON.parse(c.value) : []);
+        setCards(c ? JSON.parse(c.value).map(migrateCard) : []);
       } catch {
         setCards([]);
       }
@@ -132,7 +164,10 @@ function VocabApp() {
   }, []);
 
   const dueCount = cards
-    ? cards.filter((c) => c.nextDue === null || c.nextDue <= todayStr()).length
+    ? cards.filter((c) => {
+        const p = getProgress(c, settings.direction);
+        return p.nextDue === null || p.nextDue <= todayStr();
+      }).length
     : 0;
 
   function shuffle(arr) {
@@ -147,7 +182,10 @@ function VocabApp() {
   function startReview() {
     const today = todayStr();
     const due = shuffle(
-      cards.filter((c) => c.nextDue === null || c.nextDue <= today)
+      cards.filter((c) => {
+        const p = getProgress(c, settings.direction);
+        return p.nextDue === null || p.nextDue <= today;
+      })
     ).slice(0, 20);
     setQueue(due);
     setQIndex(0);
@@ -159,7 +197,9 @@ function VocabApp() {
 
   function answer(result) {
     const card = queue[qIndex];
-    const level = card.level === null || card.level === undefined ? -1 : card.level;
+    const direction = settings.direction;
+    const prog = getProgress(card, direction);
+    const level = prog.level === null || prog.level === undefined ? -1 : prog.level;
     let newLevel = level;
     let nextDue;
     if (result === "know") {
@@ -174,19 +214,19 @@ function VocabApp() {
       nextDue = addDays(todayStr(), 1);
     }
 
-    // remember previous state of this exact card so we can undo one step back
-    const prevCardState = cards.find((c) => c.id === card.id);
+    // remember previous state of this exact card+direction so we can undo one step back
     setLastAction({
       cardId: card.id,
-      prevLevel: prevCardState ? prevCardState.level : null,
-      prevNextDue: prevCardState ? prevCardState.nextDue : null,
-      prevLastReviewed: prevCardState ? prevCardState.lastReviewed : null,
+      direction,
+      prevLevel: prog.level,
+      prevNextDue: prog.nextDue,
+      prevLastReviewed: prog.lastReviewed,
       result,
       qIndexAtAnswer: qIndex,
     });
 
     const updated = cards.map((c) =>
-      c.id === card.id ? { ...c, level: newLevel, nextDue, lastReviewed: todayStr() } : c
+      c.id === card.id ? withProgress(c, direction, { level: newLevel, nextDue, lastReviewed: todayStr() }) : c
     );
     saveCards(updated);
     setSessionStats((s) => ({
@@ -206,9 +246,11 @@ function VocabApp() {
 
   function undoLastAnswer() {
     if (!lastAction) return;
-    const { cardId, prevLevel, prevNextDue, prevLastReviewed, result, qIndexAtAnswer } = lastAction;
+    const { cardId, direction, prevLevel, prevNextDue, prevLastReviewed, result, qIndexAtAnswer } = lastAction;
     const updated = cards.map((c) =>
-      c.id === cardId ? { ...c, level: prevLevel, nextDue: prevNextDue, lastReviewed: prevLastReviewed } : c
+      c.id === cardId
+        ? withProgress(c, direction, { level: prevLevel, nextDue: prevNextDue, lastReviewed: prevLastReviewed })
+        : c
     );
     saveCards(updated);
     setSessionStats((s) => ({
@@ -284,9 +326,11 @@ function VocabApp() {
       id: uid(),
       en: c.en.trim(),
       cz: c.cz.trim(),
-      level: null,
-      nextDue: null,
       createdAt: todayStr(),
+      progress: {
+        "en-cz": { level: null, nextDue: null, lastReviewed: null },
+        "cz-en": { level: null, nextDue: null, lastReviewed: null },
+      },
     }));
     saveCards([...(cards || []), ...newCards]);
     setDraftCards([]);
@@ -297,7 +341,7 @@ function VocabApp() {
   function exportCards() {
     const payload = {
       app: "slovicka",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       settings,
       cards,
@@ -346,15 +390,24 @@ function VocabApp() {
         }
         const clean = importedCards
           .filter((c) => c && typeof c.en === "string" && typeof c.cz === "string")
-          .map((c) => ({
-            id: c.id || uid(),
-            en: c.en.trim(),
-            cz: c.cz.trim(),
-            level: typeof c.level === "number" ? c.level : null,
-            nextDue: c.nextDue || null,
-            createdAt: c.createdAt || todayStr(),
-            lastReviewed: c.lastReviewed || null,
-          }));
+          .map((c) => {
+            const base = {
+              id: c.id || uid(),
+              en: c.en.trim(),
+              cz: c.cz.trim(),
+              createdAt: c.createdAt || todayStr(),
+            };
+            if (c.progress && c.progress["en-cz"] && c.progress["cz-en"]) {
+              return { ...base, progress: c.progress };
+            }
+            // legacy flat format: apply same starting progress to both directions
+            const legacy = {
+              level: typeof c.level === "number" ? c.level : null,
+              nextDue: c.nextDue || null,
+              lastReviewed: c.lastReviewed || null,
+            };
+            return { ...base, progress: { "en-cz": { ...legacy }, "cz-en": { ...legacy } } };
+          });
         if (clean.length === 0) {
           setImportError("V souboru nejsou žádná platná slovíčka.");
           return;
@@ -789,6 +842,13 @@ function VocabApp() {
             <button className="vf-tab active">Seznam ({cards.length})</button>
           </div>
           <div className="vf-body">
+            <div
+              className="vf-toggle"
+              onClick={() => saveSettings({ ...settings, direction: settings.direction === "en-cz" ? "cz-en" : "en-cz" })}
+            >
+              <ArrowLeftRight size={14} />
+              Úrovně pro směr: {settings.direction === "en-cz" ? "anglicky → česky" : "česky → anglicky"}
+            </div>
             <input
               className="vf-search"
               value={searchTerm}
@@ -799,13 +859,17 @@ function VocabApp() {
               if (!cards || cards.length === 0) {
                 return <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>;
               }
+              const direction = settings.direction;
               const term = searchTerm.trim().toLowerCase();
               const levelOrder = [-1, 0, 1, 2, 3, 4, 5, 6, 7];
               const levelLabel = (lvl) => {
                 if (lvl === -1) return "Nové";
                 return `Level ${lvl + 1} · za ${INTERVALS[lvl]} dní`;
               };
-              const normalized = (c) => (c.level === null || c.level === undefined ? -1 : c.level);
+              const normalized = (c) => {
+                const lvl = getProgress(c, direction).level;
+                return lvl === null || lvl === undefined ? -1 : lvl;
+              };
 
               const groups = levelOrder.map((lvl) => ({
                 lvl,
