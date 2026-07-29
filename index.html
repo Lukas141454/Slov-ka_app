@@ -62,6 +62,7 @@ const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
+const BACKUP_KEY = "vocab-last-backup";
 
 function todayStr() {
   const d = new Date();
@@ -89,6 +90,8 @@ function VocabApp() {
   const [qIndex, setQIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [sessionStats, setSessionStats] = useState({ know: 0, almost: 0, dont: 0 });
+  const [lastAction, setLastAction] = useState(null);
+  const [lastBackupAt, setLastBackupAt] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -101,6 +104,10 @@ function VocabApp() {
       try {
         const s = await window.storage.get(SETTINGS_KEY);
         if (s) setSettings(JSON.parse(s.value));
+      } catch {}
+      try {
+        const b = await window.storage.get(BACKUP_KEY);
+        if (b) setLastBackupAt(b.value);
       } catch {}
       setLoaded(true);
     })();
@@ -146,6 +153,7 @@ function VocabApp() {
     setQIndex(0);
     setFlipped(false);
     setSessionStats({ know: 0, almost: 0, dont: 0 });
+    setLastAction(null);
     setScreen("review");
   }
 
@@ -165,6 +173,18 @@ function VocabApp() {
       newLevel = 0;
       nextDue = addDays(todayStr(), 1);
     }
+
+    // remember previous state of this exact card so we can undo one step back
+    const prevCardState = cards.find((c) => c.id === card.id);
+    setLastAction({
+      cardId: card.id,
+      prevLevel: prevCardState ? prevCardState.level : null,
+      prevNextDue: prevCardState ? prevCardState.nextDue : null,
+      prevLastReviewed: prevCardState ? prevCardState.lastReviewed : null,
+      result,
+      qIndexAtAnswer: qIndex,
+    });
+
     const updated = cards.map((c) =>
       c.id === card.id ? { ...c, level: newLevel, nextDue, lastReviewed: todayStr() } : c
     );
@@ -182,6 +202,25 @@ function VocabApp() {
       setQIndex((i) => i + 1);
       setFlipped(false);
     }
+  }
+
+  function undoLastAnswer() {
+    if (!lastAction) return;
+    const { cardId, prevLevel, prevNextDue, prevLastReviewed, result, qIndexAtAnswer } = lastAction;
+    const updated = cards.map((c) =>
+      c.id === cardId ? { ...c, level: prevLevel, nextDue: prevNextDue, lastReviewed: prevLastReviewed } : c
+    );
+    saveCards(updated);
+    setSessionStats((s) => ({
+      ...s,
+      know: s.know - (result === "know" ? 1 : 0),
+      almost: s.almost - (result === "almost" ? 1 : 0),
+      dont: s.dont - (result === "dont" ? 1 : 0),
+    }));
+    setQIndex(qIndexAtAnswer);
+    setFlipped(false);
+    setLastAction(null);
+    setScreen("review");
   }
 
   function parseLinesIntoDraft(text) {
@@ -273,6 +312,18 @@ function VocabApp() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    setLastBackupAt(dateStr);
+    setReminderDismissed(true);
+    window.storage.set(BACKUP_KEY, dateStr).catch(() => {});
+  }
+
+  const [reminderDismissed, setReminderDismissed] = useState(false);
+  function shouldShowBackupReminder() {
+    if (!cards || cards.length === 0) return false;
+    if (reminderDismissed) return false;
+    if (!lastBackupAt) return true;
+    const daysSince = (new Date(todayStr()) - new Date(lastBackupAt)) / 86400000;
+    return daysSince >= 7;
   }
 
   const [pendingImport, setPendingImport] = useState(null);
@@ -506,6 +557,11 @@ function VocabApp() {
     .vf-ans-btn.almost { border-color: var(--amber); color: var(--amber); }
     .vf-ans-btn.know { border-color: var(--green); color: var(--green); }
     .vf-progress { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 14px; }
+    .vf-undo-btn {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      width: 100%; background: none; border: none; color: var(--ink-soft);
+      font-size: 12px; padding: 8px; cursor: pointer; text-decoration: underline;
+    }
     .vf-empty { text-align: center; padding: 40px 20px; color: var(--ink-soft); }
     .vf-draft-row {
       display: flex; gap: 8px; align-items: center; margin-bottom: 10px;
@@ -547,7 +603,59 @@ function VocabApp() {
       background: transparent;
     }
     .vf-edit-row input:focus { outline: none; border-bottom-color: var(--ink); }
-    .vf-summary-stat { display: flex; justify-content: space-around; margin: 24px 0; }
+    .vf-tabbar {
+      display: flex;
+      border-bottom: 1.5px solid var(--line);
+      padding: 0 22px;
+    }
+    .vf-tab {
+      flex: 1;
+      background: none;
+      border: none;
+      padding: 12px 4px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-soft);
+      cursor: pointer;
+      border-bottom: 2.5px solid transparent;
+      margin-bottom: -1.5px;
+    }
+    .vf-tab.active {
+      color: var(--ink);
+      border-bottom-color: var(--ink);
+    }
+    .vf-reminder {
+      background: #fdf3df;
+      border: 1.5px solid var(--amber);
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-bottom: 18px;
+      font-size: 13px;
+      color: var(--ink);
+    }
+    .vf-reminder-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .vf-reminder-btn {
+      flex: 1;
+      background: white;
+      border: 1.5px solid var(--ink);
+      border-radius: 5px;
+      padding: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--ink);
+    }
+    .vf-reminder-btn.primary { background: var(--ink); color: var(--paper); }
+    .vf-level-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin: 20px 0 8px;
+      padding-bottom: 4px;
+      border-bottom: 1.5px solid var(--ink);
+    }
+    .vf-level-header .name { font-family: 'Caveat', cursive; font-size: 22px; color: var(--ink); }
+    .vf-level-header .count { font-size: 12px; color: var(--ink-soft); }
     .vf-summary-stat div { text-align: center; }
     .vf-summary-stat b { font-family: 'Caveat', cursive; font-size: 40px; display: block; }
     .animate-spin { animation: vf-spin 1s linear infinite; }
@@ -579,7 +687,24 @@ function VocabApp() {
             </div>
             <BookOpen size={22} color="#1e3a5f" />
           </div>
+          <div className="vf-tabbar">
+            <button className="vf-tab active">Domů</button>
+            <button className="vf-tab" onClick={() => setScreen("list")}>Seznam ({cards.length})</button>
+          </div>
           <div className="vf-body">
+            {shouldShowBackupReminder() && (
+              <div className="vf-reminder">
+                <span>
+                  {lastBackupAt
+                    ? `Poslední záloha: ${lastBackupAt}. Je čas na novou.`
+                    : "Ještě sis neudělal žádnou zálohu slovíček."}
+                </span>
+                <div className="vf-reminder-actions">
+                  <button className="vf-reminder-btn primary" onClick={exportCards}>Zálohovat teď</button>
+                  <button className="vf-reminder-btn" onClick={() => setReminderDismissed(true)}>Později</button>
+                </div>
+              </div>
+            )}
             <div className="vf-stat-row">
               <div className="vf-stat">
                 <b>{cards.length}</b>
@@ -606,57 +731,6 @@ function VocabApp() {
               Směr: {settings.direction === "en-cz" ? "anglicky → česky" : "česky → anglicky"}
             </div>
 
-            {cards.length > 0 && (
-              <div>
-                <div className="vf-sub" style={{ margin: "18px 0 6px" }}>Všechny kartičky</div>
-                <input
-                  className="vf-search"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Hledat slovíčko…"
-                />
-                {(() => {
-                  const term = searchTerm.trim().toLowerCase();
-                  const filtered = cards
-                    .slice()
-                    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-                    .filter(
-                      (c) =>
-                        !term ||
-                        c.en.toLowerCase().includes(term) ||
-                        c.cz.toLowerCase().includes(term)
-                    );
-                  if (filtered.length === 0) {
-                    return <div className="vf-empty">Nic nenalezeno.</div>;
-                  }
-                  return filtered.map((c) =>
-                    editingId === c.id ? (
-                      <div className="vf-edit-row" key={c.id}>
-                        <input value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
-                        <span style={{ color: "#c9d5df" }}>—</span>
-                        <input value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" />
-                        <div className="vf-list-actions">
-                          <button className="vf-icon-btn" onClick={() => saveEdit(c.id)}><Check size={16} color="#3f7d52" /></button>
-                          <button className="vf-icon-btn" onClick={cancelEdit}><X size={16} /></button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="vf-list-item" key={c.id}>
-                        <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
-                        <div className="vf-list-actions">
-                          <button className="vf-icon-btn" onClick={() => startEdit(c)}>
-                            <Pencil size={15} />
-                          </button>
-                          <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  );
-                })()}
-              </div>
-            )}
             {cards.length === 0 && (
               <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>
             )}
@@ -697,6 +771,99 @@ function VocabApp() {
                 <button className="vf-btn secondary" onClick={cancelImport}>Zrušit</button>
               </div>
             )}
+          </div>
+        </>
+      )}
+
+      {screen === "list" && (
+        <>
+          <div className="vf-header">
+            <div>
+              <div className="vf-title">Slovíčka</div>
+              <div className="vf-sub">anglicko-český sešit</div>
+            </div>
+            <BookOpen size={22} color="#1e3a5f" />
+          </div>
+          <div className="vf-tabbar">
+            <button className="vf-tab" onClick={() => setScreen("home")}>Domů</button>
+            <button className="vf-tab active">Seznam ({cards.length})</button>
+          </div>
+          <div className="vf-body">
+            <input
+              className="vf-search"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Hledat slovíčko…"
+            />
+            {(() => {
+              if (!cards || cards.length === 0) {
+                return <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>;
+              }
+              const term = searchTerm.trim().toLowerCase();
+              const levelOrder = [-1, 0, 1, 2, 3, 4, 5, 6, 7];
+              const levelLabel = (lvl) => {
+                if (lvl === -1) return "Nové";
+                return `Level ${lvl + 1} · za ${INTERVALS[lvl]} dní`;
+              };
+              const normalized = (c) => (c.level === null || c.level === undefined ? -1 : c.level);
+
+              const groups = levelOrder.map((lvl) => ({
+                lvl,
+                items: cards
+                  .filter((c) => normalized(c) === lvl)
+                  .filter(
+                    (c) =>
+                      !term ||
+                      c.en.toLowerCase().includes(term) ||
+                      c.cz.toLowerCase().includes(term)
+                  )
+                  .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+              }));
+
+              const totalMatching = groups.reduce((sum, g) => sum + g.items.length, 0);
+              if (term && totalMatching === 0) {
+                return <div className="vf-empty">Nic nenalezeno.</div>;
+              }
+
+              return groups.map((g) => {
+                const allInLevel = cards.filter((c) => normalized(c) === g.lvl).length;
+                if (allInLevel === 0) return null;
+                if (term && g.items.length === 0) return null;
+                return (
+                  <div key={g.lvl}>
+                    <div className="vf-level-header">
+                      <span className="name">{levelLabel(g.lvl)}</span>
+                      <span className="count">{term ? `${g.items.length} / ${allInLevel}` : allInLevel}</span>
+                    </div>
+                    {g.items.map((c) =>
+                      editingId === c.id ? (
+                        <div className="vf-edit-row" key={c.id}>
+                          <input value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
+                          <span style={{ color: "#c9d5df" }}>—</span>
+                          <input value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" />
+                          <div className="vf-list-actions">
+                            <button className="vf-icon-btn" onClick={() => saveEdit(c.id)}><Check size={16} color="#3f7d52" /></button>
+                            <button className="vf-icon-btn" onClick={cancelEdit}><X size={16} /></button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="vf-list-item" key={c.id}>
+                          <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
+                          <div className="vf-list-actions">
+                            <button className="vf-icon-btn" onClick={() => startEdit(c)}>
+                              <Pencil size={15} />
+                            </button>
+                            <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                );
+              });
+            })()}
           </div>
         </>
       )}
@@ -824,6 +991,11 @@ function VocabApp() {
                   <button className="vf-ans-btn know" onClick={() => answer("know")}><Check size={18} />Znám</button>
                 </div>
               )}
+              {lastAction && (
+                <button className="vf-undo-btn" onClick={undoLastAnswer}>
+                  <RotateCcw size={14} /> Vrátit poslední odpověď
+                </button>
+              )}
             </div>
           </>
         );
@@ -844,6 +1016,11 @@ function VocabApp() {
             <p style={{ fontSize: 13, color: "#4a6580", textAlign: "center", marginBottom: 24 }}>
               Ta, co jsi neznal, se vrátí zítra. Ta, co znáš dobře, se vrátí až za pár dní.
             </p>
+            {lastAction && (
+              <button className="vf-undo-btn" style={{ marginBottom: 12 }} onClick={undoLastAnswer}>
+                <RotateCcw size={14} /> Vrátit poslední odpověď
+              </button>
+            )}
             <button className="vf-btn" onClick={() => setScreen("home")}>Zpět na start</button>
           </div>
         </>
