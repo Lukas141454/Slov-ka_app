@@ -265,6 +265,32 @@ function VocabApp() {
     setScreen("review");
   }
 
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
+  function requestDeleteCurrentCard() {
+    const card = queue[qIndex];
+    if (!card) return;
+    setDeleteConfirmId(card.id);
+  }
+  function cancelDeleteCurrentCard() {
+    setDeleteConfirmId(null);
+  }
+  function confirmDeleteCurrentCard() {
+    const id = deleteConfirmId;
+    if (!id) return;
+    saveCards(cards.filter((c) => c.id !== id));
+    if (lastAction && lastAction.cardId === id) {
+      setLastAction(null);
+    }
+    const newQueue = queue.filter((c) => c.id !== id);
+    setQueue(newQueue);
+    setFlipped(false);
+    setDeleteConfirmId(null);
+    if (newQueue.length === 0 || qIndex >= newQueue.length) {
+      setScreen("summary");
+    }
+  }
+
   function parseLinesIntoDraft(text) {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
     const parsed = lines
@@ -615,6 +641,36 @@ function VocabApp() {
       width: 100%; background: none; border: none; color: var(--ink-soft);
       font-size: 12px; padding: 8px; cursor: pointer; text-decoration: underline;
     }
+    .vf-danger-zone {
+      margin-top: 28px;
+      padding-top: 16px;
+      border-top: 1px dashed var(--line);
+      text-align: center;
+    }
+    .vf-delete-btn {
+      background: none;
+      border: none;
+      color: #b23a2e;
+      opacity: 0.6;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      padding: 6px 10px;
+    }
+    .vf-delete-btn:active { opacity: 1; }
+    .vf-delete-confirm {
+      background: #fdeceb;
+      border: 1.5px solid var(--red);
+      border-radius: 6px;
+      padding: 14px;
+      text-align: left;
+    }
+    .vf-delete-confirm p { font-size: 13px; margin: 0 0 12px; color: var(--ink); }
+    .vf-delete-confirm-actions { display: flex; gap: 8px; }
+    .vf-delete-confirm-actions .vf-btn { margin-bottom: 0; }
+    .vf-btn.danger { background: var(--red); border-color: var(--red); color: white; }
     .vf-empty { text-align: center; padding: 40px 20px; color: var(--ink-soft); }
     .vf-draft-row {
       display: flex; gap: 8px; align-items: center; margin-bottom: 10px;
@@ -1060,6 +1116,22 @@ function VocabApp() {
                   <RotateCcw size={14} /> Vrátit poslední odpověď
                 </button>
               )}
+
+              <div className="vf-danger-zone">
+                {deleteConfirmId === card.id ? (
+                  <div className="vf-delete-confirm">
+                    <p>Opravdu chceš slovíčko <b>„{card.en} — {card.cz}“</b> natrvalo smazat? Tuto akci nejde vrátit.</p>
+                    <div className="vf-delete-confirm-actions">
+                      <button className="vf-btn secondary" onClick={cancelDeleteCurrentCard}>Zrušit</button>
+                      <button className="vf-btn danger" onClick={confirmDeleteCurrentCard}>Ano, smazat</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button className="vf-delete-btn" onClick={requestDeleteCurrentCard}>
+                    <Trash2 size={13} /> Umím na 100 % — smazat z appky
+                  </button>
+                )}
+              </div>
             </div>
           </>
         );
