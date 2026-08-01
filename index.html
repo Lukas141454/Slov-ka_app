@@ -58,6 +58,8 @@ const BookOpen = (p) => <Icon {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-
 const Pencil = (p) => <Icon {...p}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></Icon>;
 const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></Icon>;
 const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Icon>;
+const ChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9" /></Icon>;
+const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
 const STORAGE_KEY = "vocab-cards";
@@ -267,6 +269,36 @@ function VocabApp() {
 
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
+  function quickPromote(targetLevel) {
+    const card = queue[qIndex];
+    if (!card) return;
+    const direction = settings.direction;
+    const prog = getProgress(card, direction);
+    const nextDue = addDays(todayStr(), INTERVALS[targetLevel]);
+
+    setLastAction({
+      cardId: card.id,
+      direction,
+      prevLevel: prog.level,
+      prevNextDue: prog.nextDue,
+      prevLastReviewed: prog.lastReviewed,
+      result: "skip",
+      qIndexAtAnswer: qIndex,
+    });
+
+    const updated = cards.map((c) =>
+      c.id === card.id ? withProgress(c, direction, { level: targetLevel, nextDue, lastReviewed: todayStr() }) : c
+    );
+    saveCards(updated);
+
+    if (qIndex + 1 >= queue.length) {
+      setScreen("summary");
+    } else {
+      setQIndex((i) => i + 1);
+      setFlipped(false);
+    }
+  }
+
   function requestDeleteCurrentCard() {
     const card = queue[qIndex];
     if (!card) return;
@@ -469,6 +501,10 @@ function VocabApp() {
   }
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [expandedLevels, setExpandedLevels] = useState({});
+  function toggleLevel(lvl) {
+    setExpandedLevels((prev) => ({ ...prev, [lvl]: !prev[lvl] }));
+  }
   const [editingId, setEditingId] = useState(null);
   const [editEn, setEditEn] = useState("");
   const [editCz, setEditCz] = useState("");
@@ -618,6 +654,29 @@ function VocabApp() {
     .vf-face.back { transform: rotateY(180deg); background: #fffdf6; }
     .vf-hint { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 18px; }
     .vf-answer-row { display: flex; gap: 10px; }
+    .vf-skip-row {
+      margin-top: 14px;
+      text-align: center;
+    }
+    .vf-skip-label {
+      display: block;
+      font-size: 11px;
+      color: var(--ink-soft);
+      margin-bottom: 8px;
+    }
+    .vf-skip-buttons { display: flex; gap: 8px; }
+    .vf-skip-btn {
+      flex: 1;
+      background: white;
+      border: 1.5px dashed var(--line);
+      border-radius: 6px;
+      padding: 9px 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-soft);
+      cursor: pointer;
+    }
+    .vf-skip-btn:active { border-color: var(--ink); color: var(--ink); }
     .vf-ans-btn {
       flex: 1;
       padding: 14px 6px;
@@ -763,10 +822,28 @@ function VocabApp() {
       padding-bottom: 4px;
       border-bottom: 1.5px solid var(--ink);
     }
+    .vf-level-header.clickable { cursor: pointer; align-items: center; }
+    .vf-level-header-right { display: flex; align-items: center; gap: 6px; }
+    .vf-chevron { transition: transform 0.2s ease; color: var(--ink-soft); }
+    .vf-chevron.open { transform: rotate(180deg); }
     .vf-level-header .name { font-family: 'Caveat', cursive; font-size: 22px; color: var(--ink); }
     .vf-level-header .count { font-size: 12px; color: var(--ink-soft); }
     .vf-summary-stat div { text-align: center; }
     .vf-summary-stat b { font-family: 'Caveat', cursive; font-size: 40px; display: block; }
+    .vf-help-section { margin-bottom: 26px; }
+    .vf-help-section h3 {
+      font-family: 'Caveat', cursive;
+      font-size: 24px;
+      color: var(--ink);
+      margin: 0 0 8px;
+      border-bottom: 1.5px solid var(--ink);
+      padding-bottom: 4px;
+    }
+    .vf-help-section p { font-size: 13.5px; line-height: 1.5; color: var(--ink); margin: 0 0 8px; }
+    .vf-help-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+    .vf-help-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
+    .vf-help-table td:first-child { font-weight: 600; }
+    .vf-help-table td:last-child { text-align: right; color: var(--ink-soft); }
     .animate-spin { animation: vf-spin 1s linear infinite; }
     @keyframes vf-spin { to { transform: rotate(360deg); } }
   `;
@@ -794,7 +871,9 @@ function VocabApp() {
               <div className="vf-title">Slovíčka</div>
               <div className="vf-sub">anglicko-český sešit</div>
             </div>
-            <BookOpen size={22} color="#1e3a5f" />
+            <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
+              <HelpCircle size={22} color="#1e3a5f" />
+            </button>
           </div>
           <div className="vf-tabbar">
             <button className="vf-tab active">Domů</button>
@@ -884,6 +963,74 @@ function VocabApp() {
         </>
       )}
 
+      {screen === "help" && (
+        <>
+          <div className="vf-header">
+            <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
+            <div className="vf-title" style={{ fontSize: 26 }}>Jak to funguje</div>
+            <div style={{ width: 20 }} />
+          </div>
+          <div className="vf-body">
+            <div className="vf-help-section">
+              <h3>Úrovně (Level 1–8)</h3>
+              <p>
+                Každé slovíčko postupuje úrovněmi 1 až 8. Čím vyšší úroveň, tím delší pauza,
+                než se ti slovíčko znovu objeví — appka věří, že ho umíš stále líp.
+              </p>
+              <p>
+                Nové slovíčko čeká na úrovni <b>„Nové“</b>. Jakmile ho poprvé úspěšně zodpovíš,
+                přeskočí na Level 1 a naplánuje se na příště za 1 den. Dál to pokračuje takto:
+              </p>
+              <table className="vf-help-table">
+                <tbody>
+                  <tr><td>Level 1</td><td>za 1 den</td></tr>
+                  <tr><td>Level 2</td><td>za 2 dny</td></tr>
+                  <tr><td>Level 3</td><td>za 4 dny</td></tr>
+                  <tr><td>Level 4</td><td>za 7 dní</td></tr>
+                  <tr><td>Level 5</td><td>za 14 dní</td></tr>
+                  <tr><td>Level 6</td><td>za 30 dní</td></tr>
+                  <tr><td>Level 7</td><td>za 60 dní</td></tr>
+                  <tr><td>Level 8 (max)</td><td>za 120 dní</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="vf-help-section">
+              <h3>Co dělají jednotlivé odpovědi</h3>
+              <p><b style={{ color: "#3f7d52" }}>Znám</b> — slovíčko postoupí o jednu úroveň výš a dostane delší pauzu podle tabulky nahoře.</p>
+              <p><b style={{ color: "#c68a2b" }}>Skoro</b> — úroveň zůstane stejná, ale slovíčko se vrátí dřív — za polovinu intervalu dané úrovně (např. na Level 5 za 7 dní místo 14).</p>
+              <p><b style={{ color: "#b23a2e" }}>Neznám</b> — tvrdý reset na Level 1, slovíčko se objeví hned zítra, bez ohledu na to, jak vysoko bylo předtím.</p>
+            </div>
+
+            <div className="vf-help-section">
+              <h3>Přeskočit snadné slovíčko</h3>
+              <p>
+                Pokud narazíš na slovíčko, které bezpečně znáš, nemusíš čekat, až appka postupně
+                zvýší úroveň. Během opakování můžeš kartičku poslat rovnou na Level 4 (za týden)
+                nebo Level 5 (za 14 dní).
+              </p>
+            </div>
+
+            <div className="vf-help-section">
+              <h3>Oba směry zvlášť</h3>
+              <p>
+                Appka sleduje pokrok zvlášť pro směr česky→anglicky a zvlášť pro anglicky→česky.
+                Slovíčko, které umíš skvěle jedním směrem, může být v opačném směru na jiné (nižší) úrovni.
+              </p>
+            </div>
+
+            <div className="vf-help-section">
+              <h3>Vrátit odpověď a smazat slovíčko</h3>
+              <p>
+                Překlepl ses při odpovídání? Tlačítko „Vrátit poslední odpověď" vrátí poslední krok
+                zpět. Slovíčko, které umíš na 100 % a už ho nechceš vůbec opakovat, jde z appky
+                úplně smazat přímo během opakování (appka si vždy vyžádá potvrzení).
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+
       {screen === "list" && (
         <>
           <div className="vf-header">
@@ -949,13 +1096,17 @@ function VocabApp() {
                 const allInLevel = cards.filter((c) => normalized(c) === g.lvl).length;
                 if (allInLevel === 0) return null;
                 if (term && g.items.length === 0) return null;
+                const isExpanded = term ? true : !!expandedLevels[g.lvl];
                 return (
                   <div key={g.lvl}>
-                    <div className="vf-level-header">
+                    <div className="vf-level-header clickable" onClick={() => toggleLevel(g.lvl)}>
                       <span className="name">{levelLabel(g.lvl)}</span>
-                      <span className="count">{term ? `${g.items.length} / ${allInLevel}` : allInLevel}</span>
+                      <span className="vf-level-header-right">
+                        <span className="count">{term ? `${g.items.length} / ${allInLevel}` : allInLevel}</span>
+                        <ChevronDown size={16} className={isExpanded ? "vf-chevron open" : "vf-chevron"} />
+                      </span>
                     </div>
-                    {g.items.map((c) =>
+                    {isExpanded && g.items.map((c) =>
                       editingId === c.id ? (
                         <div className="vf-edit-row" key={c.id}>
                           <input value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
@@ -1109,6 +1260,15 @@ function VocabApp() {
                   <button className="vf-ans-btn dont" onClick={() => answer("dont")}><X size={18} />Neznám</button>
                   <button className="vf-ans-btn almost" onClick={() => answer("almost")}>~ Skoro</button>
                   <button className="vf-ans-btn know" onClick={() => answer("know")}><Check size={18} />Znám</button>
+                </div>
+              )}
+              {flipped && (
+                <div className="vf-skip-row">
+                  <span className="vf-skip-label">Tohle je moc snadné, přeskočit rovnou na:</span>
+                  <div className="vf-skip-buttons">
+                    <button className="vf-skip-btn" onClick={() => quickPromote(3)}>Level 4 · za týden</button>
+                    <button className="vf-skip-btn" onClick={() => quickPromote(4)}>Level 5 · za 14 dní</button>
+                  </div>
                 </div>
               )}
               {lastAction && (
