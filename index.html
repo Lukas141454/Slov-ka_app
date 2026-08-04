@@ -60,6 +60,7 @@ const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1
 const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Icon>;
 const ChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9" /></Icon>;
 const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
+const Lightbulb = (p) => <Icon {...p}><path d="M9 18h6" /><path d="M10 22h4" /><path d="M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.6 1 2.5h6c0-.9.4-1.9 1-2.5A6 6 0 0 0 12 2Z" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
 const STORAGE_KEY = "vocab-cards";
@@ -123,6 +124,7 @@ function VocabApp() {
   const [queue, setQueue] = useState([]);
   const [qIndex, setQIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [hintLevel, setHintLevel] = useState(0);
   const [sessionStats, setSessionStats] = useState({ know: 0, almost: 0, dont: 0 });
   const [lastAction, setLastAction] = useState(null);
   const [lastBackupAt, setLastBackupAt] = useState(null);
@@ -192,6 +194,7 @@ function VocabApp() {
     setQueue(due);
     setQIndex(0);
     setFlipped(false);
+    setHintLevel(0);
     setSessionStats({ know: 0, almost: 0, dont: 0 });
     setLastAction(null);
     setScreen("review");
@@ -243,6 +246,7 @@ function VocabApp() {
     } else {
       setQIndex((i) => i + 1);
       setFlipped(false);
+    setHintLevel(0);
     }
   }
 
@@ -263,6 +267,7 @@ function VocabApp() {
     }));
     setQIndex(qIndexAtAnswer);
     setFlipped(false);
+    setHintLevel(0);
     setLastAction(null);
     setScreen("review");
   }
@@ -274,28 +279,33 @@ function VocabApp() {
     if (!card) return;
     const direction = settings.direction;
     const prog = getProgress(card, direction);
-    const nextDue = addDays(todayStr(), INTERVALS[targetLevel]);
+    const currentLevel = prog.level === null || prog.level === undefined ? -1 : prog.level;
 
-    setLastAction({
-      cardId: card.id,
-      direction,
-      prevLevel: prog.level,
-      prevNextDue: prog.nextDue,
-      prevLastReviewed: prog.lastReviewed,
-      result: "skip",
-      qIndexAtAnswer: qIndex,
-    });
-
-    const updated = cards.map((c) =>
-      c.id === card.id ? withProgress(c, direction, { level: targetLevel, nextDue, lastReviewed: todayStr() }) : c
-    );
-    saveCards(updated);
+    // Never downgrade — if the card is already at or above the target level
+    // (and thus already scheduled further out), just move on without touching it.
+    if (currentLevel < targetLevel) {
+      const nextDue = addDays(todayStr(), INTERVALS[targetLevel]);
+      setLastAction({
+        cardId: card.id,
+        direction,
+        prevLevel: prog.level,
+        prevNextDue: prog.nextDue,
+        prevLastReviewed: prog.lastReviewed,
+        result: "skip",
+        qIndexAtAnswer: qIndex,
+      });
+      const updated = cards.map((c) =>
+        c.id === card.id ? withProgress(c, direction, { level: targetLevel, nextDue, lastReviewed: todayStr() }) : c
+      );
+      saveCards(updated);
+    }
 
     if (qIndex + 1 >= queue.length) {
       setScreen("summary");
     } else {
       setQIndex((i) => i + 1);
       setFlipped(false);
+    setHintLevel(0);
     }
   }
 
@@ -317,6 +327,7 @@ function VocabApp() {
     const newQueue = queue.filter((c) => c.id !== id);
     setQueue(newQueue);
     setFlipped(false);
+    setHintLevel(0);
     setDeleteConfirmId(null);
     if (newQueue.length === 0 || qIndex >= newQueue.length) {
       setScreen("summary");
@@ -652,8 +663,51 @@ function VocabApp() {
       color: var(--ink-soft);
     }
     .vf-face.back { transform: rotateY(180deg); background: #fffdf6; }
+    .vf-hint-corner-btn {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: none;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 4px 9px;
+      font-size: 10px;
+      color: var(--amber);
+      cursor: pointer;
+    }
+    .vf-hint-corner-btn:disabled { opacity: 0.4; cursor: default; }
+    .vf-hint-letters {
+      margin-top: 10px;
+      font-size: 18px;
+      letter-spacing: 2px;
+      color: var(--ink-soft);
+      font-family: monospace;
+    }
+    .vf-level-badge {
+      position: absolute;
+      top: 10px;
+      right: 14px;
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      color: var(--ink-soft);
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 3px 9px;
+    }
+    .vf-hint-note {
+      text-align: center;
+      font-size: 11.5px;
+      color: var(--amber);
+      margin: -6px 0 14px;
+    }
     .vf-hint { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 18px; }
     .vf-answer-row { display: flex; gap: 10px; }
+    .vf-ans-btn:disabled { opacity: 0.35; cursor: default; }
+    .vf-skip-btn:disabled { opacity: 0.35; cursor: default; }
     .vf-skip-row {
       margin-top: 14px;
       text-align: center;
@@ -1006,8 +1060,12 @@ function VocabApp() {
               <h3>Přeskočit snadné slovíčko</h3>
               <p>
                 Pokud narazíš na slovíčko, které bezpečně znáš, nemusíš čekat, až appka postupně
-                zvýší úroveň. Během opakování můžeš kartičku poslat rovnou na Level 4 (za týden)
-                nebo Level 5 (za 14 dní).
+                zvýší úroveň. Během opakování můžeš kartičku poslat rovnou na Level 4 (za týden),
+                Level 5 (za 14 dní), Level 6 (za 30 dní) nebo Level 7 (za 60 dní).
+              </p>
+              <p>
+                Appka nikdy úroveň nesníží — pokud je slovíčko už na vyšší úrovni, než na jakou ho
+                zkusíš poslat, nic se nezmění a appka jen pokračuje na další kartičku.
               </p>
             </div>
 
@@ -1025,6 +1083,25 @@ function VocabApp() {
                 Překlepl ses při odpovídání? Tlačítko „Vrátit poslední odpověď" vrátí poslední krok
                 zpět. Slovíčko, které umíš na 100 % a už ho nechceš vůbec opakovat, jde z appky
                 úplně smazat přímo během opakování (appka si vždy vyžádá potvrzení).
+              </p>
+            </div>
+
+            <div className="vf-help-section">
+              <h3>Nápověda</h3>
+              <p>
+                Než kartičku otočíš, můžeš klepnout na tlačítko „Nápověda" vpravo nahoře — odkryje
+                se první písmeno správné odpovědi. Dalším klepnutím se odkryje další písmeno, a tak
+                dál, dokud si nevzpomeneš nebo neuvidíš celé slovo.
+              </p>
+              <p>
+                Aktivní vybavování si s malou nápovědou totiž posiluje paměť víc než pasivní
+                přečtení odpovědi (tzv. testovací efekt) — a mírná obtížnost při učení je žádoucí,
+                ne na škodu (koncept „desirable difficulties" psychologa Roberta Bjorka).
+              </p>
+              <p>
+                Použití nápovědy ale sníží důvěryhodnost odpovědi: tlačítko <b>„Znám"</b> a
+                <b> tlačítka pro přeskočení úrovně</b> se po nápovědě deaktivují, protože odpověď
+                nebyla čistě z paměti. Zůstane k dispozici jen „Skoro" a „Neznám".
               </p>
             </div>
           </div>
@@ -1233,6 +1310,16 @@ function VocabApp() {
         const card = queue[qIndex];
         const front = settings.direction === "en-cz" ? card.en : card.cz;
         const back = settings.direction === "en-cz" ? card.cz : card.en;
+        const curProg = getProgress(card, settings.direction);
+        const curLvl = curProg.level === null || curProg.level === undefined ? -1 : curProg.level;
+        const curLevelLabel = curLvl === -1 ? "Nové" : `Level ${curLvl + 1}`;
+        const hintDisplay = back
+          .split("")
+          .map((ch, i) => (ch === " " ? " " : i < hintLevel ? ch : "_"))
+          .join(" ");
+        function nextHintLetter() {
+          setHintLevel((h) => Math.min(h + 1, back.length));
+        }
         return (
           <>
             <div className="vf-header">
@@ -1246,28 +1333,47 @@ function VocabApp() {
                 <div key={card.id} className={`vf-card${flipped ? " flipped" : ""}`} onClick={() => setFlipped((f) => !f)}>
                   <div className="vf-face">
                     <span className="vf-tag">{settings.direction === "en-cz" ? "EN" : "CZ"}</span>
+                    {!flipped && (
+                      <button
+                        className="vf-hint-corner-btn"
+                        disabled={hintLevel >= back.length}
+                        onClick={(e) => { e.stopPropagation(); nextHintLetter(); }}
+                      >
+                        <Lightbulb size={13} /> Nápověda
+                      </button>
+                    )}
                     <div className="vf-word">{front}</div>
+                    {hintLevel > 0 && <div className="vf-hint-letters">{hintDisplay}</div>}
                   </div>
                   <div className="vf-face back">
                     <span className="vf-tag">{settings.direction === "en-cz" ? "CZ" : "EN"}</span>
+                    <span className="vf-level-badge">{curLevelLabel}</span>
                     <div className="vf-word">{back}</div>
                   </div>
                 </div>
               </div>
-              {!flipped && <div className="vf-hint">Klepni na kartičku pro odhalení</div>}
+              {!flipped && !hintLevel && <div className="vf-hint">Klepni na kartičku pro odhalení</div>}
+              {!flipped && hintLevel > 0 && <div className="vf-hint">Klepni na kartičku, nebo pokračuj v nápovědě</div>}
               {flipped && (
                 <div className="vf-answer-row">
                   <button className="vf-ans-btn dont" onClick={() => answer("dont")}><X size={18} />Neznám</button>
                   <button className="vf-ans-btn almost" onClick={() => answer("almost")}>~ Skoro</button>
-                  <button className="vf-ans-btn know" onClick={() => answer("know")}><Check size={18} />Znám</button>
+                  <button className="vf-ans-btn know" disabled={hintLevel > 0} onClick={() => answer("know")}><Check size={18} />Znám</button>
                 </div>
+              )}
+              {flipped && hintLevel > 0 && (
+                <div className="vf-hint-note">Použil(a) jsi nápovědu, proto teď nejde zvolit „Znám" ani přeskočit úroveň.</div>
               )}
               {flipped && (
                 <div className="vf-skip-row">
                   <span className="vf-skip-label">Tohle je moc snadné, přeskočit rovnou na:</span>
                   <div className="vf-skip-buttons">
-                    <button className="vf-skip-btn" onClick={() => quickPromote(3)}>Level 4 · za týden</button>
-                    <button className="vf-skip-btn" onClick={() => quickPromote(4)}>Level 5 · za 14 dní</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(3)}>Level 4 · za týden</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(4)}>Level 5 · za 14 dní</button>
+                  </div>
+                  <div className="vf-skip-buttons" style={{ marginTop: 6 }}>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(5)}>Level 6 · za 30 dní</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(6)}>Level 7 · za 60 dní</button>
                   </div>
                 </div>
               )}
