@@ -62,9 +62,10 @@ const ChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9" /></Ic
 const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 const Lightbulb = (p) => <Icon {...p}><path d="M9 18h6" /><path d="M10 22h4" /><path d="M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.6 1 2.5h6c0-.9.4-1.9 1-2.5A6 6 0 0 0 12 2Z" /></Icon>;
 const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></Icon>;
+const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v1.10 · 2026-08-06";
+const APP_VERSION = "v1.13 · 2026-08-06";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -354,32 +355,42 @@ function VocabApp() {
 
   function parseLinesIntoDraft(text) {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-    const parsed = lines
-      .map((line) => {
-        // preferred fast format: "apple.jablko" (split at first dot)
-        const dotIdx = line.indexOf(".");
-        if (dotIdx > 0 && dotIdx < line.length - 1) {
-          return {
-            _id: uid(),
-            en: line.slice(0, dotIdx).trim(),
-            cz: line.slice(dotIdx + 1).trim(),
-          };
-        }
-        // fallback: old "apple - jablko" format, in case of pasted lists
-        const parts = line.split(/\s+[-–—]\s+/);
-        if (parts.length >= 2) {
-          return { _id: uid(), en: parts[0].trim(), cz: parts.slice(1).join(" - ").trim() };
-        }
-        return null;
-      })
-      .filter(Boolean);
+    let invalidCount = 0;
+    const parsed = lines.map((line) => {
+      // preferred fast format: "apple.jablko" (split at first dot)
+      const dotIdx = line.indexOf(".");
+      if (dotIdx > 0 && dotIdx < line.length - 1) {
+        return {
+          _id: uid(),
+          en: line.slice(0, dotIdx).trim(),
+          cz: line.slice(dotIdx + 1).trim(),
+          invalid: false,
+        };
+      }
+      // fallback: old "apple - jablko" format, in case of pasted lists
+      const parts = line.split(/\s+[-–—]\s+/);
+      if (parts.length >= 2) {
+        return { _id: uid(), en: parts[0].trim(), cz: parts.slice(1).join(" - ").trim(), invalid: false };
+      }
+      // couldn't recognize the format — keep the raw line visible so it can be fixed,
+      // instead of silently dropping it
+      invalidCount++;
+      return { _id: uid(), en: line, cz: "", invalid: true };
+    });
     setDraftCards((prev) => [...prev, ...parsed]);
-    return parsed.length;
+    return { addedCount: parsed.length - invalidCount, invalidCount };
   }
 
   function parseText() {
-    parseLinesIntoDraft(rawText);
+    const { invalidCount } = parseLinesIntoDraft(rawText);
     setRawText("");
+    if (invalidCount > 0) {
+      setFileError(
+        `${invalidCount} ${invalidCount === 1 ? "řádek se nepodařilo rozpoznat" : "řádků se nepodařilo rozpoznat"} — je označený červeně v náhledu níže, oprav ho nebo smaž.`
+      );
+    } else {
+      setFileError("");
+    }
   }
 
   const [fileError, setFileError] = useState("");
@@ -392,9 +403,13 @@ function VocabApp() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target.result;
-      const added = parseLinesIntoDraft(text);
-      if (added === 0) {
-        setFileError("V souboru se nenašel žádný platný řádek ve tvaru „anglicky.česky“.");
+      const { addedCount, invalidCount } = parseLinesIntoDraft(text);
+      if (addedCount === 0 && invalidCount === 0) {
+        setFileError("Soubor je prázdný.");
+      } else if (invalidCount > 0) {
+        setFileError(
+          `${invalidCount} řádek se nepodařilo rozpoznat — jsou označené červeně v náhledu níže, oprav je nebo smaž.`
+        );
       }
     };
     reader.onerror = () => setFileError("Soubor se nepodařilo přečíst.");
@@ -402,13 +417,14 @@ function VocabApp() {
   }
 
   function updateDraft(id, field, value) {
-    setDraftCards((prev) => prev.map((c) => (c._id === id ? { ...c, [field]: value } : c)));
+    setDraftCards((prev) => prev.map((c) => (c._id === id ? { ...c, [field]: value, invalid: false } : c)));
   }
   function removeDraft(id) {
     setDraftCards((prev) => prev.filter((c) => c._id !== id));
   }
   function confirmDraft() {
     const clean = draftCards.filter((c) => c.en.trim() && c.cz.trim());
+    const incomplete = draftCards.filter((c) => !(c.en.trim() && c.cz.trim()));
     const newCards = clean.map((c) => ({
       id: uid(),
       en: c.en.trim(),
@@ -420,9 +436,13 @@ function VocabApp() {
       },
     }));
     saveCards([...(cards || []), ...newCards]);
-    setDraftCards([]);
+    // keep incomplete/invalid rows in the draft so they can still be fixed —
+    // only remove the ones that were actually saved
+    setDraftCards(incomplete);
     setRawText("");
-    setScreen("home");
+    if (incomplete.length === 0) {
+      setScreen("home");
+    }
   }
 
   function exportCards() {
@@ -740,6 +760,26 @@ function VocabApp() {
       margin: 12px 0 14px;
     }
     .vf-hint { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 18px; }
+    .vf-hint-big-wrap {
+      display: flex;
+      justify-content: center;
+      margin: 10px 0 28px;
+    }
+    .vf-hint-big-btn {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      background: #fdf3df;
+      border: 2px solid var(--amber);
+      color: var(--amber);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 3px 3px 0 rgba(198,138,43,0.25);
+    }
+    .vf-hint-big-btn:active { background: var(--amber); color: white; }
+    .vf-hint-big-btn:disabled { opacity: 0.35; cursor: default; }
     .vf-answer-row { display: flex; gap: 10px; }
     .vf-ans-btn:disabled { opacity: 0.35; cursor: default; }
     .vf-skip-btn:disabled { opacity: 0.35; cursor: default; }
@@ -821,14 +861,26 @@ function VocabApp() {
     .vf-btn.danger { background: var(--red); border-color: var(--red); color: white; }
     .vf-empty { text-align: center; padding: 40px 20px; color: var(--ink-soft); }
     .vf-draft-row {
-      display: flex; gap: 8px; align-items: center; margin-bottom: 10px;
+      display: flex; gap: 8px; align-items: center; margin-bottom: 4px;
       background: white; border: 1.5px solid var(--line); border-radius: 6px; padding: 8px 10px;
+    }
+    .vf-draft-row.invalid {
+      border-color: var(--red);
+      background: #fdeceb;
     }
     .vf-draft-row input {
       border: none; background: transparent; font-size: 14px; flex: 1; font-family: 'Inter', sans-serif; color: var(--ink);
       border-bottom: 1px dashed var(--line); padding: 2px 0;
     }
     .vf-draft-row input:focus { outline: none; border-bottom-color: var(--ink); }
+    .vf-draft-error {
+      display: flex;
+      align-items: flex-start;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--red);
+      margin: 2px 0 10px 4px;
+    }
     .vf-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; }
     .vf-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 60px 20px; color: var(--ink-soft); }
     .vf-list-item {
@@ -941,6 +993,36 @@ function VocabApp() {
       margin-top: 24px;
       letter-spacing: 0.03em;
     }
+    .vf-review-edit {
+      background: var(--paper2);
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      padding: 20px;
+      margin: 10px 0 28px;
+    }
+    .vf-review-edit-label {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--ink-soft);
+      margin-bottom: 4px;
+    }
+    .vf-review-edit-input {
+      width: 100%;
+      box-sizing: border-box;
+      border: none;
+      border-bottom: 1.5px solid var(--line);
+      background: transparent;
+      font-size: 18px;
+      font-family: 'Inter', sans-serif;
+      color: var(--ink);
+      padding: 4px 2px 8px;
+      margin-bottom: 16px;
+    }
+    .vf-review-edit-input:focus { outline: none; border-bottom-color: var(--ink); }
+    .vf-review-edit-actions { display: flex; gap: 10px; }
+    .vf-review-edit-actions .vf-btn { margin-bottom: 0; }
     .animate-spin { animation: vf-spin 1s linear infinite; }
     @keyframes vf-spin { to { transform: rotate(360deg); } }
   `;
@@ -1325,24 +1407,34 @@ function VocabApp() {
                 <p style={{ fontSize: 13, color: "#4a6580", margin: "18px 0 10px" }}>
                   Zkontroluj a uprav, pak přidej ({draftCards.length} kartiček).
                 </p>
-                {draftCards.map((c) => (
-                  <div className="vf-draft-row" key={c._id}>
-                    <input value={c.en} onChange={(e) => updateDraft(c._id, "en", e.target.value)} placeholder="english" />
-                    <span style={{ color: "#c9d5df" }}>—</span>
-                    <input value={c.cz} onChange={(e) => updateDraft(c._id, "cz", e.target.value)} placeholder="česky" />
-                    <button className="vf-icon-btn" onClick={() => removeDraft(c._id)}><X size={15} /></button>
-                  </div>
-                ))}
+                {draftCards.map((c) => {
+                  const isInvalid = c.invalid || !c.en.trim() || !c.cz.trim();
+                  return (
+                    <div key={c._id}>
+                      <div className={isInvalid ? "vf-draft-row invalid" : "vf-draft-row"}>
+                        <input value={c.en} onChange={(e) => updateDraft(c._id, "en", e.target.value)} placeholder="english" />
+                        <span style={{ color: "#c9d5df" }}>—</span>
+                        <input value={c.cz} onChange={(e) => updateDraft(c._id, "cz", e.target.value)} placeholder="česky" />
+                        <button className="vf-icon-btn" onClick={() => removeDraft(c._id)}><X size={15} /></button>
+                      </div>
+                      {isInvalid && (
+                        <div className="vf-draft-error">
+                          <AlertTriangle size={12} /> Nerozpoznaný formát nebo chybí anglická/česká strana — oprav ručně výše.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 <button
                   className="vf-btn"
                   style={{ marginTop: 10 }}
-                  disabled={draftCards.length === 0}
+                  disabled={draftCards.filter((c) => c.en.trim() && c.cz.trim()).length === 0}
                   onClick={confirmDraft}
                 >
-                  <Plus size={18} /> Přidat {draftCards.length} kartiček
+                  <Plus size={18} /> Přidat {draftCards.filter((c) => c.en.trim() && c.cz.trim()).length} kartiček
                 </button>
                 <button className="vf-btn secondary" onClick={() => setDraftCards([])}>
-                  Zahodit
+                  Zahodit vše
                 </button>
               </>
             )}
@@ -1369,10 +1461,30 @@ function VocabApp() {
             <div className="vf-header">
               <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
               <div className="vf-title" style={{ fontSize: 26 }}>Opakování</div>
-              <div style={{ width: 20 }} />
+              {editingId === card.id ? (
+                <div style={{ width: 20 }} />
+              ) : (
+                <button className="vf-icon-btn" onClick={() => startEdit(card)} title="Upravit slovíčko">
+                  <Pencil size={20} color="#1e3a5f" />
+                </button>
+              )}
             </div>
             <div className="vf-body">
               <div className="vf-progress">{qIndex + 1} / {queue.length}</div>
+
+              {editingId === card.id ? (
+                <div className="vf-review-edit">
+                  <label className="vf-review-edit-label">Anglicky</label>
+                  <input className="vf-review-edit-input" value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
+                  <label className="vf-review-edit-label">Česky</label>
+                  <input className="vf-review-edit-input" value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" />
+                  <div className="vf-review-edit-actions">
+                    <button className="vf-btn secondary" onClick={cancelEdit}>Zrušit</button>
+                    <button className="vf-btn" onClick={() => saveEdit(card.id)}>Uložit</button>
+                  </div>
+                </div>
+              ) : (
+              <>
               <div className="vf-card-wrap">
                 <div key={card.id} className={`vf-card${flipped ? " flipped" : ""}`} onClick={() => setFlipped((f) => !f)}>
                   <div className="vf-face">
@@ -1416,6 +1528,17 @@ function VocabApp() {
               </div>
               {!flipped && !hintLevel && <div className="vf-hint">Klepni na kartičku pro odhalení</div>}
               {!flipped && hintLevel > 0 && <div className="vf-hint">Klepni na kartičku, nebo pokračuj v nápovědě</div>}
+              {!flipped && (
+                <div className="vf-hint-big-wrap">
+                  <button
+                    className="vf-hint-big-btn"
+                    disabled={hintLevel >= back.length}
+                    onClick={() => nextHintLetter()}
+                  >
+                    <Lightbulb size={38} />
+                  </button>
+                </div>
+              )}
               {flipped && (
                 <div className="vf-answer-row">
                   <button className="vf-ans-btn dont" onClick={() => answer("dont")}><X size={18} />Neznám</button>
@@ -1460,6 +1583,8 @@ function VocabApp() {
                   </button>
                 )}
               </div>
+              </>
+              )}
             </div>
           </>
         );
