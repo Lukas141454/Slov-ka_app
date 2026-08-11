@@ -1,4 +1,4 @@
-const CACHE_NAME = "slovicka-v3";
+const CACHE_NAME = "slovicka-v4";
 const APP_SHELL = ["./index.html", "./manifest.json"];
 const STATIC_ASSETS = ["./icon-192.png", "./icon-512.png"];
 
@@ -25,12 +25,14 @@ function isAppShell(url) {
 self.addEventListener("fetch", (event) => {
   const url = event.request.url;
 
-  // App shell (index.html, manifest.json): always try the network first,
-  // so updates you upload to GitHub show up immediately. Falls back to
-  // cache only if there's no internet connection.
+  // App shell (index.html, manifest.json): always fetch a truly fresh copy
+  // from the network — cache: "no-store" skips the browser's own HTTP cache
+  // too, not just the service worker's cache — so updates you upload to
+  // GitHub always show up. Falls back to the last cached copy only if
+  // there's no internet connection at all.
   if (event.request.mode === "navigate" || isAppShell(url)) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: "no-store" })
         .then((response) => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
