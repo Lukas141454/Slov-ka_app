@@ -64,6 +64,7 @@ const Lightbulb = (p) => <Icon {...p}><path d="M9 18h6" /><path d="M10 22h4" /><
 const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
+const APP_VERSION = "v1.9 · 2026-08-06";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -932,6 +933,14 @@ function VocabApp() {
     .vf-help-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
     .vf-help-table td:first-child { font-weight: 600; }
     .vf-help-table td:last-child { text-align: right; color: var(--ink-soft); }
+    .vf-version {
+      text-align: center;
+      font-size: 10.5px;
+      color: var(--ink-soft);
+      opacity: 0.6;
+      margin-top: 24px;
+      letter-spacing: 0.03em;
+    }
     .animate-spin { animation: vf-spin 1s linear infinite; }
     @keyframes vf-spin { to { transform: rotate(360deg); } }
   `;
@@ -1047,6 +1056,7 @@ function VocabApp() {
                 <button className="vf-btn secondary" onClick={cancelImport}>Zrušit</button>
               </div>
             )}
+            <div className="vf-version">{APP_VERSION}</div>
           </div>
         </>
       )}
