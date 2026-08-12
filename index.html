@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Slovíčka</title>
+<title>Učílky</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#1e3a5f" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Slovíčka" />
+<meta name="apple-mobile-web-app-title" content="Učílky" />
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -65,7 +65,7 @@ const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 1
 const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v1.13 · 2026-08-06";
+const APP_VERSION = "v1.14 · 2026-08-06";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -103,8 +103,9 @@ function speakEnglish(text) {
 // (e.g. you know it well cz->en but not yet en->cz). Progress is stored
 // per direction key: "en-cz" and "cz-en".
 function getProgress(card, direction) {
-  if (card.progress && card.progress[direction]) return card.progress[direction];
-  return { level: null, nextDue: null, lastReviewed: null };
+  const base = { level: null, nextDue: null, lastReviewed: null, dontCount: 0 };
+  if (card.progress && card.progress[direction]) return { ...base, ...card.progress[direction] };
+  return base;
 }
 function withProgress(card, direction, patch) {
   const current = getProgress(card, direction);
@@ -193,6 +194,28 @@ function VocabApp() {
       }).length
     : 0;
 
+  function getProblemCards(direction) {
+    const today = todayStr();
+    return (cards || [])
+      .map((c) => {
+        const p = getProgress(c, direction);
+        const lvl = p.level === null || p.level === undefined ? -1 : p.level;
+        const daysSinceCreated = Math.floor(
+          (new Date(today) - new Date(c.createdAt || today)) / 86400000
+        );
+        const dontCount = p.dontCount || 0;
+        const stuckLow = lvl <= 0 && daysSinceCreated >= 10;
+        const manyDont = dontCount >= 2;
+        return { card: c, dontCount, stuckLow, manyDont, daysSinceCreated };
+      })
+      .filter((x) => x.manyDont || x.stuckLow)
+      .sort((a, b) => b.dontCount - a.dontCount || b.daysSinceCreated - a.daysSinceCreated);
+  }
+
+  function updateNote(id, note) {
+    saveCards(cards.map((c) => (c.id === id ? { ...c, note } : c)));
+  }
+
   function shuffle(arr) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -238,6 +261,12 @@ function VocabApp() {
       nextDue = addDays(todayStr(), 1);
     }
 
+    // track how many times this word has recently tripped you up, so we
+    // can surface "problem words" — reset on a solid "know", tick up on "dont"
+    let newDontCount = prog.dontCount || 0;
+    if (result === "dont") newDontCount += 1;
+    if (result === "know") newDontCount = 0;
+
     // remember previous state of this exact card+direction so we can undo one step back
     setLastAction({
       cardId: card.id,
@@ -245,12 +274,15 @@ function VocabApp() {
       prevLevel: prog.level,
       prevNextDue: prog.nextDue,
       prevLastReviewed: prog.lastReviewed,
+      prevDontCount: prog.dontCount || 0,
       result,
       qIndexAtAnswer: qIndex,
     });
 
     const updated = cards.map((c) =>
-      c.id === card.id ? withProgress(c, direction, { level: newLevel, nextDue, lastReviewed: todayStr() }) : c
+      c.id === card.id
+        ? withProgress(c, direction, { level: newLevel, nextDue, lastReviewed: todayStr(), dontCount: newDontCount })
+        : c
     );
     saveCards(updated);
     setSessionStats((s) => ({
@@ -271,10 +303,15 @@ function VocabApp() {
 
   function undoLastAnswer() {
     if (!lastAction) return;
-    const { cardId, direction, prevLevel, prevNextDue, prevLastReviewed, result, qIndexAtAnswer } = lastAction;
+    const { cardId, direction, prevLevel, prevNextDue, prevLastReviewed, prevDontCount, result, qIndexAtAnswer } = lastAction;
     const updated = cards.map((c) =>
       c.id === cardId
-        ? withProgress(c, direction, { level: prevLevel, nextDue: prevNextDue, lastReviewed: prevLastReviewed })
+        ? withProgress(c, direction, {
+            level: prevLevel,
+            nextDue: prevNextDue,
+            lastReviewed: prevLastReviewed,
+            dontCount: prevDontCount ?? 0,
+          })
         : c
     );
     saveCards(updated);
@@ -310,11 +347,14 @@ function VocabApp() {
         prevLevel: prog.level,
         prevNextDue: prog.nextDue,
         prevLastReviewed: prog.lastReviewed,
+        prevDontCount: prog.dontCount || 0,
         result: "skip",
         qIndexAtAnswer: qIndex,
       });
       const updated = cards.map((c) =>
-        c.id === card.id ? withProgress(c, direction, { level: targetLevel, nextDue, lastReviewed: todayStr() }) : c
+        c.id === card.id
+          ? withProgress(c, direction, { level: targetLevel, nextDue, lastReviewed: todayStr(), dontCount: 0 })
+          : c
       );
       saveCards(updated);
     }
@@ -630,6 +670,7 @@ function VocabApp() {
     .vf-stat b { font-family: 'Caveat', cursive; font-size: 30px; display: block; line-height: 1; color: var(--ink); }
     .vf-stat span { font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.05em; }
     .vf-btn {
+      box-sizing: border-box;
       width: 100%;
       display: flex;
       align-items: center;
@@ -649,7 +690,43 @@ function VocabApp() {
       background: transparent;
       color: var(--ink);
     }
+    .vf-btn.problem {
+      background: #fdf3df;
+      border-color: var(--amber);
+      color: var(--amber);
+    }
     .vf-btn:disabled { opacity: 0.45; cursor: default; }
+    .vf-problem-card {
+      background: white;
+      border: 1.5px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .vf-problem-words { font-size: 15px; margin-bottom: 6px; }
+    .vf-problem-words .en { font-weight: 700; }
+    .vf-problem-words .cz { color: var(--ink-soft); }
+    .vf-problem-badges { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    .vf-badge {
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 10px;
+    }
+    .vf-badge.danger { background: #fdeceb; color: var(--red); }
+    .vf-badge.amber { background: #fdf3df; color: var(--amber); }
+    .vf-problem-note {
+      width: 100%;
+      box-sizing: border-box;
+      border: none;
+      border-bottom: 1.5px dashed var(--line);
+      background: transparent;
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      color: var(--ink);
+      padding: 4px 2px;
+    }
+    .vf-problem-note:focus { outline: none; border-bottom-color: var(--ink); }
     .vf-toggle {
       display: flex;
       align-items: center;
@@ -1047,8 +1124,8 @@ function VocabApp() {
         <>
           <div className="vf-header">
             <div>
-              <div className="vf-title">Slovíčka</div>
-              <div className="vf-sub">anglicko-český sešit</div>
+              <div className="vf-title">Učílky</div>
+              <div className="vf-sub">tvůj jazykový trenér</div>
             </div>
             <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
               <HelpCircle size={22} color="#1e3a5f" />
@@ -1089,6 +1166,11 @@ function VocabApp() {
             <button className="vf-btn secondary" onClick={() => setScreen("add")}>
               <Plus size={18} /> Přidat slovíčka
             </button>
+            {getProblemCards(settings.direction).length > 0 && (
+              <button className="vf-btn problem" onClick={() => setScreen("problems")}>
+                <AlertTriangle size={18} /> Problémová slovíčka ({getProblemCards(settings.direction).length})
+              </button>
+            )}
 
             <div
               className="vf-toggle"
@@ -1139,6 +1221,43 @@ function VocabApp() {
               </div>
             )}
             <div className="vf-version">{APP_VERSION}</div>
+          </div>
+        </>
+      )}
+
+      {screen === "problems" && (
+        <>
+          <div className="vf-header">
+            <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
+            <div className="vf-title" style={{ fontSize: 26 }}>Problémová slovíčka</div>
+            <div style={{ width: 20 }} />
+          </div>
+          <div className="vf-body">
+            <p style={{ fontSize: 13, color: "#4a6580", marginBottom: 16 }}>
+              Slovíčka, u kterých ses aktuálně několikrát trefil(a) do „Neznám", nebo která už
+              dlouho zůstávají na začátku. Zkus si k nim vymyslet vlastní pomůcku — poznámku
+              si můžeš rovnou zapsat níže.
+            </p>
+            {getProblemCards(settings.direction).map(({ card: c, dontCount, stuckLow, daysSinceCreated }) => (
+              <div className="vf-problem-card" key={c.id}>
+                <div className="vf-problem-words">
+                  <span className="en">{c.en}</span> — <span className="cz">{c.cz}</span>
+                </div>
+                <div className="vf-problem-badges">
+                  {dontCount >= 2 && <span className="vf-badge danger">{dontCount}× Neznám</span>}
+                  {stuckLow && <span className="vf-badge amber">{daysSinceCreated} dní na začátku</span>}
+                </div>
+                <input
+                  className="vf-problem-note"
+                  value={c.note || ""}
+                  onChange={(e) => updateNote(c.id, e.target.value)}
+                  placeholder="Tvoje mnemotechnická pomůcka…"
+                />
+              </div>
+            ))}
+            {getProblemCards(settings.direction).length === 0 && (
+              <div className="vf-empty">Žádná problémová slovíčka — zatím vše v pohodě.</div>
+            )}
           </div>
         </>
       )}
@@ -1238,8 +1357,8 @@ function VocabApp() {
         <>
           <div className="vf-header">
             <div>
-              <div className="vf-title">Slovíčka</div>
-              <div className="vf-sub">anglicko-český sešit</div>
+              <div className="vf-title">Učílky</div>
+              <div className="vf-sub">tvůj jazykový trenér</div>
             </div>
             <BookOpen size={22} color="#1e3a5f" />
           </div>
@@ -1553,6 +1672,10 @@ function VocabApp() {
                 <div className="vf-skip-row">
                   <span className="vf-skip-label">Tohle je moc snadné, přeskočit rovnou na:</span>
                   <div className="vf-skip-buttons">
+                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(1)}>Level 2 · za 2 dny</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(2)}>Level 3 · za 4 dny</button>
+                  </div>
+                  <div className="vf-skip-buttons" style={{ marginTop: 6 }}>
                     <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(3)}>Level 4 · za týden</button>
                     <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(4)}>Level 5 · za 14 dní</button>
                   </div>

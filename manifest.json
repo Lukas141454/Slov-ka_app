@@ -1,7 +1,7 @@
 {
-  "name": "Slovíčka - anglicko-český sešit",
-  "short_name": "Slovíčka",
-  "description": "Osobní appka pro procvičování anglických slovíček metodou opakování s rozestupy",
+  "name": "Učílky - jazykový trenér",
+  "short_name": "Učílky",
+  "description": "Osobní appka pro procvičování slovíček metodou opakování s rozestupy",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
