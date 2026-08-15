@@ -22,7 +22,7 @@
 <div id="root"></div>
 
 <script type="text/babel" data-type="module">
-const { useState, useEffect, useCallback } = React;
+const { useState, useEffect, useCallback, useRef } = React;
 
 // ---- tiny local storage wrapper mimicking the original window.storage API ----
 window.storage = {
@@ -63,12 +63,14 @@ const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><path d=
 const Lightbulb = (p) => <Icon {...p}><path d="M9 18h6" /><path d="M10 22h4" /><path d="M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.6 1 2.5h6c0-.9.4-1.9 1-2.5A6 6 0 0 0 12 2Z" /></Icon>;
 const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></Icon>;
 const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
+const Package = (p) => <Icon {...p}><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v1.14 · 2026-08-06";
+const APP_VERSION = "v1.17 · 2026-08-12";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
+const PACKS_KEY = "vocab-packs";
 
 function todayStr() {
   const d = new Date();
@@ -137,9 +139,11 @@ function VocabApp() {
   const [cards, setCards] = useState(null);
   const [settings, setSettings] = useState({ direction: "en-cz" });
   const [loaded, setLoaded] = useState(false);
+  const [packs, setPacks] = useState([]);
 
   const [rawText, setRawText] = useState("");
   const [draftCards, setDraftCards] = useState([]);
+  const [packName, setPackName] = useState("");
 
   const [queue, setQueue] = useState([]);
   const [qIndex, setQIndex] = useState(0);
@@ -165,6 +169,12 @@ function VocabApp() {
         const b = await window.storage.get(BACKUP_KEY);
         if (b) setLastBackupAt(b.value);
       } catch {}
+      try {
+        const p = await window.storage.get(PACKS_KEY);
+        setPacks(p ? JSON.parse(p.value) : []);
+      } catch {
+        setPacks([]);
+      }
       setLoaded(true);
     })();
   }, []);
@@ -173,6 +183,15 @@ function VocabApp() {
     setCards(next);
     try {
       await window.storage.set(STORAGE_KEY, JSON.stringify(next));
+    } catch (e) {
+      console.error("Storage error", e);
+    }
+  }, []);
+
+  const savePacks = useCallback(async (next) => {
+    setPacks(next);
+    try {
+      await window.storage.set(PACKS_KEY, JSON.stringify(next));
     } catch (e) {
       console.error("Storage error", e);
     }
@@ -440,6 +459,10 @@ function VocabApp() {
     e.target.value = "";
     if (!file) return;
     setFileError("");
+    if (!packName.trim()) {
+      const base = file.name.replace(/\.[^/.]+$/, "");
+      setPackName(base || "Nový balíček");
+    }
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target.result;
@@ -462,36 +485,86 @@ function VocabApp() {
   function removeDraft(id) {
     setDraftCards((prev) => prev.filter((c) => c._id !== id));
   }
-  function confirmDraft() {
+  function confirmPackDraft() {
     const clean = draftCards.filter((c) => c.en.trim() && c.cz.trim());
     const incomplete = draftCards.filter((c) => !(c.en.trim() && c.cz.trim()));
-    const newCards = clean.map((c) => ({
+    if (clean.length > 0) {
+      const name = packName.trim() || `Balíček ${packs.length + 1}`;
+      const newPack = {
+        id: uid(),
+        name,
+        createdAt: todayStr(),
+        activatedAt: null,
+        words: clean.map((c) => ({ en: c.en.trim(), cz: c.cz.trim() })),
+      };
+      savePacks([...(packs || []), newPack]);
+    }
+    // keep incomplete/invalid rows so they can still be fixed — only clear what was saved
+    setDraftCards(incomplete);
+    if (incomplete.length === 0) {
+      setPackName("");
+    }
+  }
+
+  function activatePack(pack) {
+    const existingKeys = new Set(
+      (cards || []).map((c) => `${c.en.toLowerCase()}|${c.cz.toLowerCase()}`)
+    );
+    const toAdd = pack.words
+      .filter((w) => !existingKeys.has(`${w.en.toLowerCase()}|${w.cz.toLowerCase()}`))
+      .map((w) => ({
+        id: uid(),
+        en: w.en,
+        cz: w.cz,
+        createdAt: todayStr(),
+        progress: {
+          "en-cz": { level: null, nextDue: null, lastReviewed: null },
+          "cz-en": { level: null, nextDue: null, lastReviewed: null },
+        },
+      }));
+    saveCards([...(cards || []), ...toAdd]);
+    savePacks(packs.map((p) => (p.id === pack.id ? { ...p, activatedAt: todayStr() } : p)));
+  }
+
+  function deletePack(id) {
+    savePacks(packs.filter((p) => p.id !== id));
+  }
+
+  const [quickEn, setQuickEn] = useState("");
+  const [quickCz, setQuickCz] = useState("");
+  const [quickSavedMsg, setQuickSavedMsg] = useState("");
+  const quickEnRef = useRef(null);
+
+  function saveQuickAdd() {
+    const en = quickEn.trim();
+    const cz = quickCz.trim();
+    if (!en || !cz) return;
+    const newCard = {
       id: uid(),
-      en: c.en.trim(),
-      cz: c.cz.trim(),
+      en,
+      cz,
       createdAt: todayStr(),
       progress: {
         "en-cz": { level: null, nextDue: null, lastReviewed: null },
         "cz-en": { level: null, nextDue: null, lastReviewed: null },
       },
-    }));
-    saveCards([...(cards || []), ...newCards]);
-    // keep incomplete/invalid rows in the draft so they can still be fixed —
-    // only remove the ones that were actually saved
-    setDraftCards(incomplete);
-    setRawText("");
-    if (incomplete.length === 0) {
-      setScreen("home");
-    }
+    };
+    saveCards([...(cards || []), newCard]);
+    setQuickSavedMsg(`Přidáno: ${en} — ${cz}`);
+    setQuickEn("");
+    setQuickCz("");
+    if (quickEnRef.current) quickEnRef.current.focus();
+    setTimeout(() => setQuickSavedMsg(""), 2500);
   }
 
   function exportCards() {
     const payload = {
       app: "slovicka",
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       settings,
       cards,
+      packs,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -526,6 +599,7 @@ function VocabApp() {
     if (!file) return;
     setImportError("");
     setPendingImport(null);
+    setPendingImportPacks(null);
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
@@ -560,6 +634,9 @@ function VocabApp() {
           return;
         }
         setPendingImport(clean);
+        if (Array.isArray(data.packs)) {
+          setPendingImportPacks(data.packs);
+        }
       } catch (err) {
         setImportError("Soubor se nepodařilo přečíst — není to platný JSON export.");
       }
@@ -568,20 +645,30 @@ function VocabApp() {
     reader.readAsText(file, "UTF-8");
   }
 
+  const [pendingImportPacks, setPendingImportPacks] = useState(null);
+
   function confirmImport(mode) {
     if (!pendingImport) return;
     if (mode === "replace") {
       saveCards(pendingImport);
+      if (pendingImportPacks) savePacks(pendingImportPacks);
     } else {
       const existingKey = (c) => `${c.en.toLowerCase()}|${c.cz.toLowerCase()}`;
       const existingSet = new Set((cards || []).map(existingKey));
       const toAdd = pendingImport.filter((c) => !existingSet.has(existingKey(c)));
       saveCards([...(cards || []), ...toAdd]);
+      if (pendingImportPacks) {
+        const existingPackIds = new Set((packs || []).map((p) => p.id));
+        const newPacks = pendingImportPacks.filter((p) => !existingPackIds.has(p.id));
+        savePacks([...(packs || []), ...newPacks]);
+      }
     }
     setPendingImport(null);
+    setPendingImportPacks(null);
   }
   function cancelImport() {
     setPendingImport(null);
+    setPendingImportPacks(null);
     setImportError("");
   }
 
@@ -998,8 +1085,8 @@ function VocabApp() {
       flex: 1;
       background: none;
       border: none;
-      padding: 12px 4px;
-      font-size: 13px;
+      padding: 12px 2px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--ink-soft);
       cursor: pointer;
@@ -1100,6 +1187,36 @@ function VocabApp() {
     .vf-review-edit-input:focus { outline: none; border-bottom-color: var(--ink); }
     .vf-review-edit-actions { display: flex; gap: 10px; }
     .vf-review-edit-actions .vf-btn { margin-bottom: 0; }
+    .vf-quick-add {
+      background: var(--paper2);
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .vf-quick-saved {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--green);
+    }
+    .vf-pack-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      background: white;
+      border: 1.5px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .vf-pack-name { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+    .vf-pack-meta { font-size: 12px; color: var(--ink-soft); display: flex; align-items: center; }
+    .vf-pack-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
     .animate-spin { animation: vf-spin 1s linear infinite; }
     @keyframes vf-spin { to { transform: rotate(360deg); } }
   `;
@@ -1134,6 +1251,7 @@ function VocabApp() {
           <div className="vf-tabbar">
             <button className="vf-tab active">Domů</button>
             <button className="vf-tab" onClick={() => setScreen("list")}>Seznam ({cards.length})</button>
+            <button className="vf-tab" onClick={() => setScreen("packs")}>Balíčky ({packs.length})</button>
           </div>
           <div className="vf-body">
             {shouldShowBackupReminder() && (
@@ -1365,6 +1483,7 @@ function VocabApp() {
           <div className="vf-tabbar">
             <button className="vf-tab" onClick={() => setScreen("home")}>Domů</button>
             <button className="vf-tab active">Seznam ({cards.length})</button>
+            <button className="vf-tab" onClick={() => setScreen("packs")}>Balíčky ({packs.length})</button>
           </div>
           <div className="vf-body">
             <div
@@ -1469,24 +1588,63 @@ function VocabApp() {
             <div style={{ width: 20 }} />
           </div>
           <div className="vf-body">
-            <p style={{ fontSize: 13, color: "#4a6580", marginBottom: 10 }}>
-              Napiš, vlož nebo nahraj textový soubor — jeden pár na řádek, anglicky tečka česky (bez mezery):
-            </p>
-            <div style={{
-              background: "#fffdf6",
-              border: "1.5px solid #c9d5df",
-              borderRadius: 6,
-              padding: 6,
-              fontSize: 12,
-              color: "#4a6580",
-              marginBottom: 12,
-              fontFamily: "monospace",
-            }}>
-              prey on.pronásledovat<br />by chance.náhodou
+            <div className="vf-quick-add">
+              <label className="vf-review-edit-label">Anglicky</label>
+              <input
+                ref={quickEnRef}
+                className="vf-review-edit-input"
+                value={quickEn}
+                onChange={(e) => setQuickEn(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") document.getElementById("vf-quick-cz-input")?.focus(); }}
+                placeholder="english"
+                autoFocus
+              />
+              <label className="vf-review-edit-label">Česky</label>
+              <input
+                id="vf-quick-cz-input"
+                className="vf-review-edit-input"
+                value={quickCz}
+                onChange={(e) => setQuickCz(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveQuickAdd(); }}
+                placeholder="česky"
+              />
+              <button className="vf-btn" disabled={!quickEn.trim() || !quickCz.trim()} onClick={saveQuickAdd}>
+                <Plus size={18} /> Uložit
+              </button>
+              {quickSavedMsg && <div className="vf-quick-saved"><Check size={14} /> {quickSavedMsg}</div>}
             </div>
 
+            <p style={{ fontSize: 12.5, color: "#4a6580", textAlign: "center", marginTop: 22 }}>
+              Chceš přidat víc slovíček najednou ze souboru? To se teď dělá přes{" "}
+              <span style={{ fontWeight: 700, color: "#1e3a5f" }}>Balíčky</span> — appka tam
+              slovíčka nejdřív jen uloží stranou a do učení je zařadí, až je sám aktivuješ.
+            </p>
+            <button className="vf-btn secondary" style={{ marginTop: 10 }} onClick={() => setScreen("packs")}>
+              <Package size={18} /> Přejít na Balíčky
+            </button>
+          </div>
+        </>
+      )}
+
+      {screen === "packs" && (
+        <>
+          <div className="vf-header">
+            <div>
+              <div className="vf-title">Učílky</div>
+              <div className="vf-sub">tvůj jazykový trenér</div>
+            </div>
+            <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
+              <HelpCircle size={22} color="#1e3a5f" />
+            </button>
+          </div>
+          <div className="vf-tabbar">
+            <button className="vf-tab" onClick={() => setScreen("home")}>Domů</button>
+            <button className="vf-tab" onClick={() => setScreen("list")}>Seznam ({cards.length})</button>
+            <button className="vf-tab active">Balíčky ({packs.length})</button>
+          </div>
+          <div className="vf-body">
             <label className="vf-btn secondary" style={{ cursor: "pointer" }}>
-              <Plus size={18} /> Nahrát .txt soubor
+              <Upload size={18} /> Nahrát nový balíček (.txt)
               <input
                 type="file"
                 accept=".txt,.csv,text/plain"
@@ -1494,37 +1652,25 @@ function VocabApp() {
                 style={{ display: "none" }}
               />
             </label>
+            <p style={{ fontSize: 11.5, color: "#4a6580", textAlign: "center", marginTop: -4 }}>
+              jeden pár na řádek, anglicky tečka česky — např. „apple.jablko"
+            </p>
             {fileError && (
-              <p style={{ fontSize: 12, color: "#b23a2e", marginTop: -4, marginBottom: 12 }}>{fileError}</p>
+              <p style={{ fontSize: 12, color: "#b23a2e", marginTop: 4, marginBottom: 12 }}>{fileError}</p>
             )}
-
-            <div className="vf-sub" style={{ margin: "16px 0 8px", textAlign: "center" }}>nebo napiš ručně</div>
-
-            <textarea
-              value={rawText}
-              onChange={(e) => setRawText(e.target.value)}
-              placeholder={"prey on.pronásledovat\nby chance.náhodou"}
-              rows={6}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                border: "1.5px solid #1e3a5f",
-                borderRadius: 6,
-                padding: 10,
-                fontSize: 14,
-                fontFamily: "'Inter', sans-serif",
-                marginBottom: 12,
-                resize: "vertical",
-              }}
-            />
-            <button className="vf-btn" disabled={!rawText.trim()} onClick={parseText}>
-              <Plus size={18} /> Zpracovat řádky
-            </button>
 
             {draftCards.length > 0 && (
               <>
-                <p style={{ fontSize: 13, color: "#4a6580", margin: "18px 0 10px" }}>
-                  Zkontroluj a uprav, pak přidej ({draftCards.length} kartiček).
+                <label className="vf-review-edit-label" style={{ marginTop: 14 }}>Název balíčku</label>
+                <input
+                  className="vf-review-edit-input"
+                  value={packName}
+                  onChange={(e) => setPackName(e.target.value)}
+                  placeholder="např. Zvířata, Level A1…"
+                  style={{ marginBottom: 10 }}
+                />
+                <p style={{ fontSize: 13, color: "#4a6580", margin: "8px 0 10px" }}>
+                  Zkontroluj a uprav, pak ulož jako balíček ({draftCards.length} slovíček).
                 </p>
                 {draftCards.map((c) => {
                   const isInvalid = c.invalid || !c.en.trim() || !c.cz.trim();
@@ -1548,15 +1694,40 @@ function VocabApp() {
                   className="vf-btn"
                   style={{ marginTop: 10 }}
                   disabled={draftCards.filter((c) => c.en.trim() && c.cz.trim()).length === 0}
-                  onClick={confirmDraft}
+                  onClick={confirmPackDraft}
                 >
-                  <Plus size={18} /> Přidat {draftCards.filter((c) => c.en.trim() && c.cz.trim()).length} kartiček
+                  <Package size={18} /> Uložit jako balíček ({draftCards.filter((c) => c.en.trim() && c.cz.trim()).length})
                 </button>
-                <button className="vf-btn secondary" onClick={() => setDraftCards([])}>
+                <button className="vf-btn secondary" onClick={() => { setDraftCards([]); setPackName(""); }}>
                   Zahodit vše
                 </button>
               </>
             )}
+
+            <div className="vf-sub" style={{ margin: "26px 0 10px" }}>Uložené balíčky</div>
+            {packs.length === 0 && (
+              <div className="vf-empty">Zatím žádné balíčky. Nahraj soubor výše.</div>
+            )}
+            {packs
+              .slice()
+              .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+              .map((p) => (
+                <div className="vf-pack-card" key={p.id}>
+                  <div className="vf-pack-info">
+                    <div className="vf-pack-name">{p.name}</div>
+                    <div className="vf-pack-meta">
+                      {p.words.length} slovíček
+                      {p.activatedAt && <span className="vf-badge amber" style={{ marginLeft: 8 }}>Aktivováno</span>}
+                    </div>
+                  </div>
+                  <div className="vf-pack-actions">
+                    <button className="vf-btn" style={{ marginBottom: 0, width: "auto", padding: "10px 16px" }} onClick={() => activatePack(p)}>
+                      {p.activatedAt ? "Aktivovat znovu" : "Aktivovat"}
+                    </button>
+                    <button className="vf-icon-btn" onClick={() => deletePack(p.id)}><Trash2 size={16} /></button>
+                  </div>
+                </div>
+              ))}
           </div>
         </>
       )}
@@ -1666,22 +1837,22 @@ function VocabApp() {
                 </div>
               )}
               {flipped && hintLevel > 0 && (
-                <div className="vf-hint-note">Použil(a) jsi nápovědu, proto teď nejde zvolit „Znám" ani přeskočit úroveň.</div>
+                <div className="vf-hint-note">Použil(a) jsi nápovědu, proto teď nejde zvolit „Znám", ani přeskočit na vyšší úroveň, než na jaké slovíčko už je.</div>
               )}
               {flipped && (
                 <div className="vf-skip-row">
                   <span className="vf-skip-label">Tohle je moc snadné, přeskočit rovnou na:</span>
                   <div className="vf-skip-buttons">
-                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(1)}>Level 2 · za 2 dny</button>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(2)}>Level 3 · za 4 dny</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 1 > curLvl} onClick={() => quickPromote(1)}>Level 2 · za 2 dny</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 2 > curLvl} onClick={() => quickPromote(2)}>Level 3 · za 4 dny</button>
                   </div>
                   <div className="vf-skip-buttons" style={{ marginTop: 6 }}>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(3)}>Level 4 · za týden</button>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(4)}>Level 5 · za 14 dní</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 3 > curLvl} onClick={() => quickPromote(3)}>Level 4 · za týden</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 4 > curLvl} onClick={() => quickPromote(4)}>Level 5 · za 14 dní</button>
                   </div>
                   <div className="vf-skip-buttons" style={{ marginTop: 6 }}>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(5)}>Level 6 · za 30 dní</button>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0} onClick={() => quickPromote(6)}>Level 7 · za 60 dní</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 5 > curLvl} onClick={() => quickPromote(5)}>Level 6 · za 30 dní</button>
+                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 6 > curLvl} onClick={() => quickPromote(6)}>Level 7 · za 60 dní</button>
                   </div>
                 </div>
               )}
