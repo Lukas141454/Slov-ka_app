@@ -66,7 +66,7 @@ const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46
 const Package = (p) => <Icon {...p}><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v1.17 · 2026-08-12";
+const APP_VERSION = "v1.18 · 2026-08-27";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -83,6 +83,15 @@ function addDays(base, days) {
 }
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// Strips diacritics and lowercases, so "jiz" matches "již" and searching
+// works as a real fulltext match anywhere in the word, not just the start.
+function normalizeSearch(str) {
+  return (str || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 // Speaks an English word/phrase aloud using the browser's built-in
@@ -681,6 +690,40 @@ function VocabApp() {
   function toggleLevel(lvl) {
     setExpandedLevels((prev) => ({ ...prev, [lvl]: !prev[lvl] }));
   }
+  const [levelDeleteConfirm, setLevelDeleteConfirm] = useState(null);
+
+  function exportLevelBackup(levelCards, lvlLabel) {
+    const payload = {
+      app: "slovicka",
+      version: 3,
+      exportedAt: new Date().toISOString(),
+      settings,
+      cards: levelCards,
+      packs: [],
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `slovicka-${lvlLabel.replace(/\s+/g, "-")}-${todayStr()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function confirmDeleteLevel(lvl, direction) {
+    const ids = new Set(
+      cards
+        .filter((c) => {
+          const l = getProgress(c, direction).level;
+          return (l === null || l === undefined ? -1 : l) === lvl;
+        })
+        .map((c) => c.id)
+    );
+    saveCards(cards.filter((c) => !ids.has(c.id)));
+    setLevelDeleteConfirm(null);
+  }
   const [editingId, setEditingId] = useState(null);
   const [editEn, setEditEn] = useState("");
   const [editCz, setEditCz] = useState("");
@@ -889,10 +932,10 @@ function VocabApp() {
       align-items: center;
       justify-content: center;
       background: white;
-      border: 1.5px solid var(--ink);
+      border: 2px solid var(--ink);
       border-radius: 50%;
-      width: 38px;
-      height: 38px;
+      width: 56px;
+      height: 56px;
       color: var(--ink);
       cursor: pointer;
       flex-shrink: 0;
@@ -1504,7 +1547,7 @@ function VocabApp() {
                 return <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>;
               }
               const direction = settings.direction;
-              const term = searchTerm.trim().toLowerCase();
+              const term = normalizeSearch(searchTerm.trim());
               const levelOrder = [-1, 0, 1, 2, 3, 4, 5, 6, 7];
               const levelLabel = (lvl) => {
                 if (lvl === -1) return "Nové";
@@ -1517,13 +1560,14 @@ function VocabApp() {
 
               const groups = levelOrder.map((lvl) => ({
                 lvl,
+                allItems: cards.filter((c) => normalized(c) === lvl),
                 items: cards
                   .filter((c) => normalized(c) === lvl)
                   .filter(
                     (c) =>
                       !term ||
-                      c.en.toLowerCase().includes(term) ||
-                      c.cz.toLowerCase().includes(term)
+                      normalizeSearch(c.en).includes(term) ||
+                      normalizeSearch(c.cz).includes(term)
                   )
                   .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
               }));
@@ -1534,7 +1578,7 @@ function VocabApp() {
               }
 
               return groups.map((g) => {
-                const allInLevel = cards.filter((c) => normalized(c) === g.lvl).length;
+                const allInLevel = g.allItems.length;
                 if (allInLevel === 0) return null;
                 if (term && g.items.length === 0) return null;
                 const isExpanded = term ? true : !!expandedLevels[g.lvl];
@@ -1544,9 +1588,39 @@ function VocabApp() {
                       <span className="name">{levelLabel(g.lvl)}</span>
                       <span className="vf-level-header-right">
                         <span className="count">{term ? `${g.items.length} / ${allInLevel}` : allInLevel}</span>
+                        {!term && (
+                          <button
+                            className="vf-icon-btn"
+                            title="Smazat celou úroveň"
+                            onClick={(e) => { e.stopPropagation(); setLevelDeleteConfirm(g.lvl); }}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                         <ChevronDown size={16} className={isExpanded ? "vf-chevron open" : "vf-chevron"} />
                       </span>
                     </div>
+                    {levelDeleteConfirm === g.lvl && (
+                      <div className="vf-delete-confirm" style={{ marginBottom: 12 }}>
+                        <p>
+                          Opravdu smazat celou úroveň <b>{levelLabel(g.lvl)}</b> — {allInLevel}{" "}
+                          {allInLevel === 1 ? "slovíčko" : allInLevel < 5 ? "slovíčka" : "slovíček"}?
+                          Tuto akci nejde vrátit.
+                        </p>
+                        <div className="vf-delete-confirm-actions" style={{ marginBottom: 10 }}>
+                          <button
+                            className="vf-btn secondary"
+                            onClick={() => exportLevelBackup(g.allItems, levelLabel(g.lvl))}
+                          >
+                            <Download size={15} /> Nejdřív zálohovat
+                          </button>
+                        </div>
+                        <div className="vf-delete-confirm-actions">
+                          <button className="vf-btn secondary" onClick={() => setLevelDeleteConfirm(null)}>Zrušit</button>
+                          <button className="vf-btn danger" onClick={() => confirmDeleteLevel(g.lvl, direction)}>Ano, smazat vše</button>
+                        </div>
+                      </div>
+                    )}
                     {isExpanded && g.items.map((c) =>
                       editingId === c.id ? (
                         <div className="vf-edit-row" key={c.id}>
@@ -1795,7 +1869,7 @@ function VocabApp() {
                         onClick={(e) => { e.stopPropagation(); speakEnglish(card.en); }}
                         title="Přehrát výslovnost"
                       >
-                        <Volume2 size={18} />
+                        <Volume2 size={26} />
                       </button>
                     )}
                     {hintLevel > 0 && <div className="vf-hint-letters">{hintDisplay}</div>}
@@ -1810,7 +1884,7 @@ function VocabApp() {
                         onClick={(e) => { e.stopPropagation(); speakEnglish(card.en); }}
                         title="Přehrát výslovnost"
                       >
-                        <Volume2 size={18} />
+                        <Volume2 size={26} />
                       </button>
                     )}
                   </div>
