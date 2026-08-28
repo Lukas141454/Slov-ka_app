@@ -66,7 +66,7 @@ const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46
 const Package = (p) => <Icon {...p}><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v1.18 · 2026-08-27";
+const APP_VERSION = "v1.20 · 2026-08-27";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -107,6 +107,26 @@ function speakEnglish(text) {
     window.speechSynthesis.speak(utterance);
   } catch (e) {
     console.warn("Speech synthesis failed:", e);
+  }
+}
+
+// Some browsers (especially Chrome) initialize the text-to-speech engine
+// lazily, which causes a noticeable delay on the very first use after the
+// app loads. Calling getVoices() early — and speaking a near-silent
+// utterance — nudges the browser to warm the engine up in the background,
+// so by the time the person actually taps the speaker button it's ready.
+function warmUpSpeechSynthesis() {
+  if (!("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.getVoices();
+    const warmup = new SpeechSynthesisUtterance(" ");
+    warmup.volume = 0;
+    warmup.lang = "en-US";
+    window.speechSynthesis.speak(warmup);
+    // Chrome sometimes loads the voice list asynchronously — ask again once it's ready.
+    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+  } catch (e) {
+    // non-fatal — worst case the first tap is just slightly slower
   }
 }
 
@@ -161,6 +181,10 @@ function VocabApp() {
   const [sessionStats, setSessionStats] = useState({ know: 0, almost: 0, dont: 0 });
   const [lastAction, setLastAction] = useState(null);
   const [lastBackupAt, setLastBackupAt] = useState(null);
+
+  useEffect(() => {
+    warmUpSpeechSynthesis();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -232,7 +256,7 @@ function VocabApp() {
           (new Date(today) - new Date(c.createdAt || today)) / 86400000
         );
         const dontCount = p.dontCount || 0;
-        const stuckLow = lvl <= 0 && daysSinceCreated >= 10;
+        const stuckLow = lvl <= 2 && daysSinceCreated >= 14;
         const manyDont = dontCount >= 2;
         return { card: c, dontCount, stuckLow, manyDont, daysSinceCreated };
       })
@@ -1396,8 +1420,8 @@ function VocabApp() {
           <div className="vf-body">
             <p style={{ fontSize: 13, color: "#4a6580", marginBottom: 16 }}>
               Slovíčka, u kterých ses aktuálně několikrát trefil(a) do „Neznám", nebo která už
-              dlouho zůstávají na začátku. Zkus si k nim vymyslet vlastní pomůcku — poznámku
-              si můžeš rovnou zapsat níže.
+              dlouho nepostupují výš než na Level 3. Zkus si k nim vymyslet vlastní pomůcku —
+              poznámku si můžeš rovnou zapsat níže.
             </p>
             {getProblemCards(settings.direction).map(({ card: c, dontCount, stuckLow, daysSinceCreated }) => (
               <div className="vf-problem-card" key={c.id}>
@@ -1406,7 +1430,7 @@ function VocabApp() {
                 </div>
                 <div className="vf-problem-badges">
                   {dontCount >= 2 && <span className="vf-badge danger">{dontCount}× Neznám</span>}
-                  {stuckLow && <span className="vf-badge amber">{daysSinceCreated} dní na začátku</span>}
+                  {stuckLow && <span className="vf-badge amber">{daysSinceCreated} dní nepostupuje výš</span>}
                 </div>
                 <input
                   className="vf-problem-note"
