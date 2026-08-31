@@ -65,10 +65,11 @@ const Lightbulb = (p) => <Icon {...p}><path d="M9 18h6" /><path d="M10 22h4" /><
 const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></Icon>;
 const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 const Package = (p) => <Icon {...p}><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></Icon>;
+const HomeIcon = (p) => <Icon {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><polyline points="9 22 9 12 15 12 15 22" /></Icon>;
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v1.24 · 2026-08-29";
+const APP_VERSION = "v2.0 · 2026-08-29";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -883,14 +884,17 @@ function VocabApp() {
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Inter:wght@400;500;600;700&display=swap');
     .vf-root {
-      --paper: #f6f1e4;
-      --paper2: #efe8d6;
-      --ink: #1e3a5f;
-      --ink-soft: #4a6580;
-      --line: #c9d5df;
-      --red: #b23a2e;
-      --green: #3f7d52;
-      --amber: #c68a2b;
+      --paper: #f5f4f1;
+      --paper2: #ffffff;
+      --ink: #333866;
+      --ink-soft: #74789a;
+      --line: #e3e2ec;
+      --red: #c15c53;
+      --green: #4c9271;
+      --amber: #c99a4a;
+      --primary: #6b74d6;
+      --primary-dark: #545dbd;
+      --primary-soft: #eeeefa;
       font-family: 'Inter', sans-serif;
       color: var(--ink);
       background: var(--paper);
@@ -903,8 +907,8 @@ function VocabApp() {
       box-shadow: 0 0 40px rgba(0,0,0,0.06);
     }
     .vf-header {
-      padding: 28px 22px 14px;
-      border-bottom: 2px solid var(--ink);
+      padding: 26px 22px 16px;
+      border-bottom: none;
       display: flex;
       align-items: baseline;
       justify-content: space-between;
@@ -921,17 +925,18 @@ function VocabApp() {
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
-    .vf-body { flex: 1; padding: 20px; }
+    .vf-body { flex: 1; padding: 20px; padding-bottom: 92px; }
     .vf-stat-row { display: flex; gap: 12px; margin-bottom: 22px; }
     .vf-stat {
       flex: 1;
       background: var(--paper2);
-      border: 1.5px solid var(--ink);
-      border-radius: 4px;
-      padding: 14px 12px;
+      border: none;
+      box-shadow: 0 1px 3px rgba(51,56,102,0.08);
+      border-radius: 14px;
+      padding: 16px 12px;
       text-align: center;
     }
-    .vf-stat b { font-family: 'Caveat', cursive; font-size: 30px; display: block; line-height: 1; color: var(--ink); }
+    .vf-stat b { font-family: 'Caveat', cursive; font-size: 30px; display: block; line-height: 1; color: var(--primary-dark); }
     .vf-stat span { font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.05em; }
     .vf-btn {
       box-sizing: border-box;
@@ -940,30 +945,37 @@ function VocabApp() {
       align-items: center;
       justify-content: center;
       gap: 10px;
-      padding: 16px;
-      border-radius: 6px;
-      border: 2px solid var(--ink);
-      background: var(--ink);
-      color: var(--paper);
-      font-weight: 600;
+      padding: 15px;
+      border-radius: 16px;
+      border: none;
+      background: var(--primary);
+      box-shadow: 0 4px 0 var(--primary-dark);
+      color: white;
+      font-weight: 700;
       font-size: 16px;
       cursor: pointer;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
+      transition: transform 0.05s ease;
     }
+    .vf-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--primary-dark); }
     .vf-btn.secondary {
-      background: transparent;
-      color: var(--ink);
+      background: var(--paper2);
+      color: var(--primary-dark);
+      box-shadow: 0 4px 0 var(--line);
+      border: 1.5px solid var(--line);
     }
+    .vf-btn.secondary:active { box-shadow: 0 2px 0 var(--line); }
     .vf-btn.problem {
       background: #fdf3df;
-      border-color: var(--amber);
-      color: var(--amber);
+      box-shadow: 0 4px 0 #e8cf9c;
+      color: #96702a;
     }
     .vf-btn:disabled { opacity: 0.45; cursor: default; }
     .vf-problem-card {
-      background: white;
-      border: 1.5px solid var(--line);
-      border-radius: 8px;
+      background: var(--paper2);
+      border: none;
+      box-shadow: 0 1px 3px rgba(51,56,102,0.08);
+      border-radius: 14px;
       padding: 12px 14px;
       margin-bottom: 12px;
     }
@@ -990,11 +1002,12 @@ function VocabApp() {
       color: var(--ink);
       padding: 4px 2px;
     }
-    .vf-problem-note:focus { outline: none; border-bottom-color: var(--ink); }
+    .vf-problem-note:focus { outline: none; border-bottom-color: var(--primary); }
     .vf-unsplash-setup {
       background: var(--paper2);
-      border: 1.5px solid var(--line);
-      border-radius: 8px;
+      border: none;
+      box-shadow: 0 1px 3px rgba(51,56,102,0.08);
+      border-radius: 14px;
       padding: 14px;
       margin-bottom: 6px;
     }
@@ -1021,7 +1034,7 @@ function VocabApp() {
       max-height: 180px;
       object-fit: cover;
       border-radius: 8px;
-      border: 2px solid var(--ink);
+      border: 1.5px solid var(--line);
       display: block;
       margin: 10px 0 4px;
     }
@@ -1054,8 +1067,8 @@ function VocabApp() {
       position: absolute;
       inset: 0;
       backface-visibility: hidden;
-      border: 2px solid var(--ink);
-      border-radius: 8px;
+      border: none;
+      border-radius: 20px;
       background: var(--paper2);
       display: flex;
       align-items: center;
@@ -1063,7 +1076,7 @@ function VocabApp() {
       flex-direction: column;
       padding: 24px;
       text-align: center;
-      box-shadow: 4px 4px 0 rgba(30,58,95,0.18);
+      box-shadow: 0 6px 20px rgba(51,56,102,0.14);
     }
     .vf-face .vf-word { font-size: 28px; font-weight: 700; word-break: break-word; }
     .vf-face .vf-tag {
@@ -1075,7 +1088,7 @@ function VocabApp() {
       text-transform: uppercase;
       color: var(--ink-soft);
     }
-    .vf-face.back { transform: rotateY(180deg); background: #fffdf6; }
+    .vf-face.back { transform: rotateY(180deg); background: var(--primary-soft); }
     .vf-hint-corner-btn {
       position: absolute;
       top: 8px;
@@ -1099,12 +1112,13 @@ function VocabApp() {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: white;
-      border: 2px solid var(--ink);
+      background: var(--primary-soft);
+      border: none;
+      box-shadow: 0 2px 6px rgba(51,56,102,0.12);
       border-radius: 50%;
       width: 56px;
       height: 56px;
-      color: var(--ink);
+      color: var(--primary-dark);
       cursor: pointer;
       flex-shrink: 0;
     }
@@ -1185,20 +1199,21 @@ function VocabApp() {
     .vf-ans-btn {
       flex: 1;
       padding: 14px 6px;
-      border-radius: 6px;
-      border: 2px solid var(--ink);
+      border-radius: 14px;
+      border: none;
       background: white;
-      font-weight: 600;
+      font-weight: 700;
       font-size: 13px;
       cursor: pointer;
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 4px;
+      box-shadow: 0 1px 3px rgba(51,56,102,0.1);
     }
-    .vf-ans-btn.dont { border-color: var(--red); color: var(--red); }
-    .vf-ans-btn.almost { border-color: var(--amber); color: var(--amber); }
-    .vf-ans-btn.know { border-color: var(--green); color: var(--green); }
+    .vf-ans-btn.dont { background: #fdeceb; color: var(--red); }
+    .vf-ans-btn.almost { background: #fdf3df; color: var(--amber); }
+    .vf-ans-btn.know { background: #e9f5ee; color: var(--green); }
     .vf-progress { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 14px; }
     .vf-undo-btn {
       display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -1270,14 +1285,15 @@ function VocabApp() {
       width: 100%;
       box-sizing: border-box;
       border: 1.5px solid var(--line);
-      border-radius: 6px;
-      padding: 9px 12px;
+      border-radius: 12px;
+      padding: 10px 14px;
       font-size: 14px;
       font-family: 'Inter', sans-serif;
       color: var(--ink);
       margin-bottom: 4px;
+      background: var(--paper2);
     }
-    .vf-search:focus { outline: none; border-color: var(--ink); }
+    .vf-search:focus { outline: none; border-color: var(--primary); }
     .vf-edit-row {
       display: flex; gap: 6px; align-items: center;
       padding: 8px 4px; border-bottom: 1px solid var(--line);
@@ -1288,26 +1304,37 @@ function VocabApp() {
       background: transparent;
     }
     .vf-edit-row input:focus { outline: none; border-bottom-color: var(--ink); }
-    .vf-tabbar {
+    .vf-bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 480px;
       display: flex;
-      border-bottom: 1.5px solid var(--line);
-      padding: 0 22px;
+      background: var(--paper2);
+      box-shadow: 0 -2px 12px rgba(51,56,102,0.10);
+      padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+      z-index: 20;
     }
-    .vf-tab {
+    .vf-bottom-nav-item {
       flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
       background: none;
       border: none;
-      padding: 12px 2px;
-      font-size: 12px;
+      padding: 8px 2px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--ink-soft);
       cursor: pointer;
-      border-bottom: 2.5px solid transparent;
-      margin-bottom: -1.5px;
+      border-radius: 12px;
     }
-    .vf-tab.active {
-      color: var(--ink);
-      border-bottom-color: var(--ink);
+    .vf-bottom-nav-item.active {
+      color: var(--primary-dark);
+      background: var(--primary-soft);
     }
     .vf-reminder {
       background: #fdf3df;
@@ -1322,22 +1349,22 @@ function VocabApp() {
     .vf-reminder-btn {
       flex: 1;
       background: white;
-      border: 1.5px solid var(--ink);
-      border-radius: 5px;
-      padding: 7px;
+      border: 1.5px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       color: var(--ink);
     }
-    .vf-reminder-btn.primary { background: var(--ink); color: var(--paper); }
+    .vf-reminder-btn.primary { background: var(--primary); color: white; border-color: var(--primary); }
     .vf-level-header {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
       margin: 20px 0 8px;
       padding-bottom: 4px;
-      border-bottom: 1.5px solid var(--ink);
+      border-bottom: 1.5px solid var(--line);
     }
     .vf-level-header.clickable { cursor: pointer; align-items: center; }
     .vf-level-header-right { display: flex; align-items: center; gap: 6px; }
@@ -1351,9 +1378,9 @@ function VocabApp() {
     .vf-help-section h3 {
       font-family: 'Caveat', cursive;
       font-size: 24px;
-      color: var(--ink);
+      color: var(--primary-dark);
       margin: 0 0 8px;
-      border-bottom: 1.5px solid var(--ink);
+      border-bottom: 1.5px solid var(--line);
       padding-bottom: 4px;
     }
     .vf-help-section p { font-size: 13.5px; line-height: 1.5; color: var(--ink); margin: 0 0 8px; }
@@ -1371,8 +1398,9 @@ function VocabApp() {
     }
     .vf-review-edit {
       background: var(--paper2);
-      border: 2px solid var(--ink);
-      border-radius: 8px;
+      border: none;
+      box-shadow: 0 2px 8px rgba(51,56,102,0.10);
+      border-radius: 16px;
       padding: 20px;
       margin: 10px 0 28px;
     }
@@ -1396,13 +1424,14 @@ function VocabApp() {
       padding: 4px 2px 8px;
       margin-bottom: 16px;
     }
-    .vf-review-edit-input:focus { outline: none; border-bottom-color: var(--ink); }
+    .vf-review-edit-input:focus { outline: none; border-bottom-color: var(--primary); }
     .vf-review-edit-actions { display: flex; gap: 10px; }
     .vf-review-edit-actions .vf-btn { margin-bottom: 0; }
     .vf-quick-add {
       background: var(--paper2);
-      border: 2px solid var(--ink);
-      border-radius: 8px;
+      border: none;
+      box-shadow: 0 2px 8px rgba(51,56,102,0.10);
+      border-radius: 16px;
       padding: 20px;
     }
     .vf-quick-saved {
@@ -1459,11 +1488,6 @@ function VocabApp() {
             <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
               <HelpCircle size={22} color="#1e3a5f" />
             </button>
-          </div>
-          <div className="vf-tabbar">
-            <button className="vf-tab active">Domů</button>
-            <button className="vf-tab" onClick={() => setScreen("list")}>Seznam ({cards.length})</button>
-            <button className="vf-tab" onClick={() => setScreen("packs")}>Balíčky ({packs.length})</button>
           </div>
           <div className="vf-body">
             {shouldShowBackupReminder() && (
@@ -1754,11 +1778,6 @@ function VocabApp() {
             </div>
             <BookOpen size={22} color="#1e3a5f" />
           </div>
-          <div className="vf-tabbar">
-            <button className="vf-tab" onClick={() => setScreen("home")}>Domů</button>
-            <button className="vf-tab active">Seznam ({cards.length})</button>
-            <button className="vf-tab" onClick={() => setScreen("packs")}>Balíčky ({packs.length})</button>
-          </div>
           <div className="vf-body">
             <div
               className="vf-toggle"
@@ -1941,11 +1960,6 @@ function VocabApp() {
             <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
               <HelpCircle size={22} color="#1e3a5f" />
             </button>
-          </div>
-          <div className="vf-tabbar">
-            <button className="vf-tab" onClick={() => setScreen("home")}>Domů</button>
-            <button className="vf-tab" onClick={() => setScreen("list")}>Seznam ({cards.length})</button>
-            <button className="vf-tab active">Balíčky ({packs.length})</button>
           </div>
           <div className="vf-body">
             <label className="vf-btn secondary" style={{ cursor: "pointer" }}>
@@ -2318,6 +2332,23 @@ function VocabApp() {
             <button className="vf-btn" onClick={() => setScreen("home")}>Zpět na start</button>
           </div>
         </>
+      )}
+
+      {(screen === "home" || screen === "list" || screen === "packs") && (
+        <div className="vf-bottom-nav">
+          <button className={`vf-bottom-nav-item${screen === "home" ? " active" : ""}`} onClick={() => setScreen("home")}>
+            <HomeIcon size={20} />
+            Domů
+          </button>
+          <button className={`vf-bottom-nav-item${screen === "list" ? " active" : ""}`} onClick={() => setScreen("list")}>
+            <BookOpen size={20} />
+            Seznam
+          </button>
+          <button className={`vf-bottom-nav-item${screen === "packs" ? " active" : ""}`} onClick={() => setScreen("packs")}>
+            <Package size={20} />
+            Balíčky
+          </button>
+        </div>
       )}
     </div>
   );
