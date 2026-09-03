@@ -69,7 +69,7 @@ const HomeIcon = (p) => <Icon {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.1 · 2026-08-31";
+const APP_VERSION = "v2.3 · 2026-09-02";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -190,6 +190,7 @@ function VocabApp() {
   const [problemFlipped, setProblemFlipped] = useState(false);
   const [unsplashKey, setUnsplashKey] = useState("");
   const [unsplashKeyInput, setUnsplashKeyInput] = useState("");
+  const [showUnsplashSettings, setShowUnsplashSettings] = useState(false);
   const [imageLoadingId, setImageLoadingId] = useState(null);
   const [imageErrorId, setImageErrorId] = useState(null);
 
@@ -1019,8 +1020,22 @@ function VocabApp() {
       box-shadow: 0 1px 3px rgba(51,56,102,0.08);
       border-radius: 14px;
       padding: 14px;
-      margin-bottom: 6px;
+      margin-top: 10px;
     }
+    .vf-settings-toggle-row { margin-top: 28px; padding-top: 12px; border-top: 1px dashed var(--line); }
+    .vf-settings-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      background: none;
+      border: none;
+      font-size: 12px;
+      color: var(--ink-soft);
+      cursor: pointer;
+      padding: 4px 0;
+    }
+    .vf-settings-toggle .vf-chevron { margin-left: auto; }
     .vf-problem-image-area { margin-bottom: 10px; }
     .vf-problem-image {
       width: 100%;
@@ -1031,6 +1046,27 @@ function VocabApp() {
       display: block;
       margin-bottom: 4px;
     }
+    .vf-image-actions-row {
+      display: flex;
+      gap: 8px;
+      margin: 8px 0 6px;
+    }
+    .vf-image-action-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: var(--paper2);
+      border: 1.5px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .vf-image-action-btn.danger { color: var(--red); border-color: #f3d3cf; }
     .vf-image-attribution {
       font-size: 10px;
       color: var(--ink-soft);
@@ -1236,6 +1272,16 @@ function VocabApp() {
     .vf-ans-btn.dont { background: #fdeceb; color: var(--red); }
     .vf-ans-btn.almost { background: #fdf3df; color: var(--amber); }
     .vf-ans-btn.know { background: #e9f5ee; color: var(--green); }
+    .vf-ans-tilde {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      font-size: 18px;
+      line-height: 1;
+      font-weight: 700;
+    }
     .vf-progress { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 14px; }
     .vf-undo-btn {
       display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -1615,31 +1661,6 @@ function VocabApp() {
               poznámku si můžeš rovnou zapsat níže.
             </p>
 
-            <div className="vf-unsplash-setup">
-              <label className="vf-review-edit-label">
-                Unsplash API klíč {unsplashKey ? "(nastaveno ✓)" : "(pro obrázky u slovíček)"}
-              </label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  className="vf-review-edit-input"
-                  style={{ marginBottom: 8, flex: 1 }}
-                  value={unsplashKeyInput}
-                  onChange={(e) => setUnsplashKeyInput(e.target.value)}
-                  placeholder="Access Key z unsplash.com/developers"
-                  type="password"
-                />
-                <button className="vf-btn secondary" style={{ width: "auto", padding: "10px 16px", marginBottom: 8 }} onClick={saveUnsplashKey}>
-                  Uložit
-                </button>
-              </div>
-              {!unsplashKey && (
-                <p style={{ fontSize: 11.5, color: "#4a6580", margin: 0 }}>
-                  Zdarma na unsplash.com/developers — založ appku, zkopíruj „Access Key" a vlož sem.
-                  Obrázky fungují jen online.
-                </p>
-              )}
-            </div>
-
             {getProblemCards(settings.direction).length > 0 && (
               <button className="vf-btn" style={{ marginBottom: 18, marginTop: 16 }} onClick={startProblemReview}>
                 <RotateCcw size={18} /> Opakovat slovíčka ({getProblemCards(settings.direction).length})
@@ -1660,14 +1681,16 @@ function VocabApp() {
                     {c.image ? (
                       <>
                         <img src={c.image.url} alt={c.en} className="vf-problem-image" />
+                        <div className="vf-image-actions-row">
+                          <button className="vf-image-action-btn" onClick={() => fetchProblemImage(c, true)}>
+                            <RotateCcw size={16} /> Jiný obrázek
+                          </button>
+                          <button className="vf-image-action-btn danger" onClick={() => removeProblemImage(c)}>
+                            <Trash2 size={16} /> Smazat
+                          </button>
+                        </div>
                         <div className="vf-image-attribution">
                           Foto: <a href={c.image.photographerName ? c.image.photographerUrl : "#"} target="_blank" rel="noreferrer">{c.image.photographerName}</a> / Unsplash
-                          <button className="vf-icon-btn" style={{ marginLeft: 6 }} onClick={() => fetchProblemImage(c, true)} title="Zkusit jiný obrázek">
-                            <RotateCcw size={13} />
-                          </button>
-                          <button className="vf-icon-btn" style={{ marginLeft: 2 }} onClick={() => removeProblemImage(c)} title="Smazat obrázek">
-                            <Trash2 size={13} />
-                          </button>
                         </div>
                       </>
                     ) : (
@@ -1699,6 +1722,39 @@ function VocabApp() {
             {getProblemCards(settings.direction).length === 0 && (
               <div className="vf-empty">Žádná problémová slovíčka — zatím vše v pohodě.</div>
             )}
+
+            <div className="vf-settings-toggle-row">
+              <button className="vf-settings-toggle" onClick={() => setShowUnsplashSettings((v) => !v)}>
+                <ImageIcon size={13} /> Nastavení obrázků (Unsplash) {unsplashKey ? "✓" : ""}
+                <ChevronDown size={14} className={showUnsplashSettings ? "vf-chevron open" : "vf-chevron"} />
+              </button>
+              {showUnsplashSettings && (
+                <div className="vf-unsplash-setup">
+                  <label className="vf-review-edit-label">
+                    Unsplash API klíč {unsplashKey ? "(nastaveno ✓)" : "(pro obrázky u slovíček)"}
+                  </label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      className="vf-review-edit-input"
+                      style={{ marginBottom: 8, flex: 1 }}
+                      value={unsplashKeyInput}
+                      onChange={(e) => setUnsplashKeyInput(e.target.value)}
+                      placeholder="Access Key z unsplash.com/developers"
+                      type="password"
+                    />
+                    <button className="vf-btn secondary" style={{ width: "auto", padding: "10px 16px", marginBottom: 8 }} onClick={saveUnsplashKey}>
+                      Uložit
+                    </button>
+                  </div>
+                  {!unsplashKey && (
+                    <p style={{ fontSize: 11.5, color: "#4a6580", margin: 0 }}>
+                      Zdarma na unsplash.com/developers — založ appku, zkopíruj „Access Key" a vlož sem.
+                      Obrázky fungují jen online.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}
@@ -2178,7 +2234,7 @@ function VocabApp() {
               {flipped && (
                 <div className="vf-answer-row">
                   <button className="vf-ans-btn dont" onClick={() => answer("dont")}><X size={18} />Neznám</button>
-                  <button className="vf-ans-btn almost" onClick={() => answer("almost")}>~ Skoro</button>
+                  <button className="vf-ans-btn almost" onClick={() => answer("almost")}><span className="vf-ans-tilde">~</span>Skoro</button>
                   <button className="vf-ans-btn know" disabled={hintLevel > 0} onClick={() => answer("know")}><Check size={18} />Znám</button>
                 </div>
               )}
