@@ -69,7 +69,7 @@ const HomeIcon = (p) => <Icon {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.3 · 2026-09-02";
+const APP_VERSION = "v2.5 · 2026-09-04";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -214,8 +214,35 @@ function VocabApp() {
     setHintLevel(0);
   }
 
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+
   useEffect(() => {
     warmUpSpeechSynthesis();
+  }, []);
+
+  useEffect(() => {
+    async function checkForUpdate() {
+      try {
+        const res = await fetch("./index.html", { cache: "no-store" });
+        const text = await res.text();
+        const match = text.match(/const APP_VERSION = "([^"]+)"/);
+        if (match && match[1] !== APP_VERSION) {
+          setUpdateAvailable(true);
+        }
+      } catch (e) {
+        // offline or request failed — silently ignore, we'll try again later
+      }
+    }
+    checkForUpdate();
+    function onVisible() {
+      if (document.visibilityState === "visible") checkForUpdate();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", checkForUpdate);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", checkForUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -1342,6 +1369,22 @@ function VocabApp() {
     }
     .vf-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; }
     .vf-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 60px 20px; color: var(--ink-soft); }
+    .vf-update-banner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: var(--primary);
+      color: white;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 10px 16px;
+      text-align: center;
+      cursor: pointer;
+      position: sticky;
+      top: 0;
+      z-index: 30;
+    }
     .vf-list-item {
       display: flex; justify-content: space-between; align-items: center;
       padding: 10px 4px; border-bottom: 1px solid var(--line); font-size: 14px;
@@ -1546,6 +1589,12 @@ function VocabApp() {
     <div className="vf-root">
       <style>{styles}</style>
 
+      {updateAvailable && (
+        <div className="vf-update-banner" onClick={() => window.location.reload()}>
+          <RotateCcw size={14} /> Dostupná nová verze appky — klepnutím obnovit
+        </div>
+      )}
+
       {screen === "home" && (
         <>
           <div className="vf-header">
@@ -1606,42 +1655,6 @@ function VocabApp() {
               <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>
             )}
 
-            <div className="vf-sub" style={{ margin: "24px 0 8px" }}>Záloha</div>
-            <button className="vf-btn secondary" onClick={exportCards} disabled={!cards || cards.length === 0}>
-              <Download size={18} /> Stáhnout zálohu (export)
-            </button>
-            <label className="vf-btn secondary" style={{ cursor: "pointer" }}>
-              <Upload size={18} /> Obnovit ze zálohy (import)
-              <input
-                type="file"
-                accept=".json,application/json"
-                onChange={handleImportFile}
-                style={{ display: "none" }}
-              />
-            </label>
-            {importError && (
-              <p style={{ fontSize: 12, color: "#b23a2e", marginTop: -4, marginBottom: 12 }}>{importError}</p>
-            )}
-            {pendingImport && (
-              <div style={{
-                background: "#fffdf6",
-                border: "1.5px solid #1e3a5f",
-                borderRadius: 6,
-                padding: 14,
-                marginBottom: 12,
-              }}>
-                <p style={{ fontSize: 13, marginTop: 0 }}>
-                  Nalezeno {pendingImport.length} slovíček v záloze. Jak je chceš přidat?
-                </p>
-                <button className="vf-btn" style={{ marginBottom: 8 }} onClick={() => confirmImport("merge")}>
-                  Sloučit s aktuálními (přeskočí duplicity)
-                </button>
-                <button className="vf-btn secondary" style={{ marginBottom: 8 }} onClick={() => confirmImport("replace")}>
-                  Nahradit vše zálohou
-                </button>
-                <button className="vf-btn secondary" onClick={cancelImport}>Zrušit</button>
-              </div>
-            )}
             <div className="vf-version">{APP_VERSION}</div>
           </div>
         </>
@@ -1846,6 +1859,64 @@ function VocabApp() {
                 nebyla čistě z paměti. Zůstane k dispozici jen „Skoro" a „Neznám".
               </p>
             </div>
+          </div>
+        </>
+      )}
+
+      {screen === "backup" && (
+        <>
+          <div className="vf-header">
+            <div>
+              <div className="vf-title">Záloha</div>
+              <div className="vf-sub">export a obnovení dat</div>
+            </div>
+            <Download size={22} color="#1e3a5f" />
+          </div>
+          <div className="vf-body">
+            <p style={{ fontSize: 13, color: "#4a6580", marginBottom: 18 }}>
+              Slovíčka, pokrok, balíčky i poznámky se ukládají jen v tomto telefonu. Doporučujeme
+              si čas od času udělat zálohu, ať o nic nepřijdeš.
+            </p>
+            <button className="vf-btn secondary" onClick={exportCards} disabled={!cards || cards.length === 0}>
+              <Download size={18} /> Stáhnout zálohu (export)
+            </button>
+            <label className="vf-btn secondary" style={{ cursor: "pointer" }}>
+              <Upload size={18} /> Obnovit ze zálohy (import)
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFile}
+                style={{ display: "none" }}
+              />
+            </label>
+            {importError && (
+              <p style={{ fontSize: 12, color: "#b23a2e", marginTop: -4, marginBottom: 12 }}>{importError}</p>
+            )}
+            {pendingImport && (
+              <div style={{
+                background: "#fffdf6",
+                border: "1.5px solid #1e3a5f",
+                borderRadius: 6,
+                padding: 14,
+                marginBottom: 12,
+              }}>
+                <p style={{ fontSize: 13, marginTop: 0 }}>
+                  Nalezeno {pendingImport.length} slovíček v záloze. Jak je chceš přidat?
+                </p>
+                <button className="vf-btn" style={{ marginBottom: 8 }} onClick={() => confirmImport("merge")}>
+                  Sloučit s aktuálními (přeskočí duplicity)
+                </button>
+                <button className="vf-btn secondary" style={{ marginBottom: 8 }} onClick={() => confirmImport("replace")}>
+                  Nahradit vše zálohou
+                </button>
+                <button className="vf-btn secondary" onClick={cancelImport}>Zrušit</button>
+              </div>
+            )}
+            {lastBackupAt && (
+              <p style={{ fontSize: 11.5, color: "#4a6580", textAlign: "center", marginTop: 16 }}>
+                Poslední záloha: {lastBackupAt}
+              </p>
+            )}
           </div>
         </>
       )}
@@ -2423,7 +2494,7 @@ function VocabApp() {
         </>
       )}
 
-      {(screen === "home" || screen === "list" || screen === "packs") && (
+      {(screen === "home" || screen === "list" || screen === "packs" || screen === "backup") && (
         <div className="vf-bottom-nav">
           <button className={`vf-bottom-nav-item${screen === "home" ? " active" : ""}`} onClick={() => setScreen("home")}>
             <HomeIcon size={20} />
@@ -2436,6 +2507,10 @@ function VocabApp() {
           <button className={`vf-bottom-nav-item${screen === "packs" ? " active" : ""}`} onClick={() => setScreen("packs")}>
             <Package size={20} />
             Balíčky
+          </button>
+          <button className={`vf-bottom-nav-item${screen === "backup" ? " active" : ""}`} onClick={() => setScreen("backup")}>
+            <Download size={20} />
+            Záloha
           </button>
         </div>
       )}
