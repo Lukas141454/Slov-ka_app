@@ -66,15 +66,17 @@ const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 1
 const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 const Package = (p) => <Icon {...p}><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></Icon>;
 const HomeIcon = (p) => <Icon {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><polyline points="9 22 9 12 15 12 15 22" /></Icon>;
+const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" /></Icon>;
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.11 · 2026-09-05";
+const APP_VERSION = "v2.12 · 2026-09-05";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
 const PACKS_KEY = "vocab-packs";
 const UNSPLASH_KEY_STORAGE = "vocab-unsplash-key";
+const STREAK_KEY = "vocab-streak";
 
 function todayStr() {
   const d = new Date();
@@ -87,6 +89,13 @@ function addDays(base, days) {
 }
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// Czech pluralization for "day": 1 den, 2-4 dny, 0/5+ dní
+function dayWord(n) {
+  if (n === 1) return "den";
+  if (n >= 2 && n <= 4) return "dny";
+  return "dní";
 }
 
 // Strips diacritics and lowercases, so "jiz" matches "již" and searching
@@ -185,6 +194,12 @@ function VocabApp() {
   const [sessionStats, setSessionStats] = useState({ know: 0, almost: 0, dont: 0, skip: 0 });
   const [lastAction, setLastAction] = useState(null);
   const [lastBackupAt, setLastBackupAt] = useState(null);
+  const [streakData, setStreakData] = useState({
+    minutesToday: 0,
+    minutesDate: todayStr(),
+    streak: 0,
+    streakCreditedForDate: null,
+  });
   const [problemQueue, setProblemQueue] = useState([]);
   const [problemIndex, setProblemIndex] = useState(0);
   const [problemFlipped, setProblemFlipped] = useState(false);
@@ -222,6 +237,31 @@ function VocabApp() {
 
   useEffect(() => {
     warmUpSpeechSynthesis();
+  }, []);
+
+  useEffect(() => {
+    const TICK_SECONDS = 20; // granularity of time tracking while app is open
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      setStreakData((prev) => {
+        const today = todayStr();
+        let { minutesToday, minutesDate, streak, streakCreditedForDate } = prev;
+        if (minutesDate !== today) {
+          minutesToday = 0;
+          minutesDate = today;
+        }
+        minutesToday += TICK_SECONDS / 60;
+        if (minutesToday >= 20 && streakCreditedForDate !== today) {
+          const yesterday = addDays(today, -1);
+          streak = streakCreditedForDate === yesterday ? streak + 1 : 1;
+          streakCreditedForDate = today;
+        }
+        const next = { minutesToday, minutesDate, streak, streakCreditedForDate };
+        window.storage.set(STREAK_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    }, TICK_SECONDS * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -272,6 +312,10 @@ function VocabApp() {
       try {
         const b = await window.storage.get(BACKUP_KEY);
         if (b) setLastBackupAt(b.value);
+      } catch {}
+      try {
+        const st = await window.storage.get(STREAK_KEY);
+        if (st) setStreakData(JSON.parse(st.value));
       } catch {}
       try {
         const p = await window.storage.get(PACKS_KEY);
@@ -980,6 +1024,60 @@ function VocabApp() {
       font-size: 18px;
       letter-spacing: 2px;
     }
+    .vf-header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .vf-streak-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink-soft);
+      background: var(--paper2);
+      border-radius: 20px;
+      padding: 5px 10px;
+      box-shadow: 0 1px 3px rgba(51,56,102,0.08);
+    }
+    .vf-streak-badge.active { color: #d9752b; }
+    .vf-streak-badge svg { color: var(--line); }
+    .vf-streak-badge.active svg { color: #f0932b; }
+    .vf-battery-wrap { margin: 28px 0 8px; text-align: center; }
+    .vf-battery {
+      position: relative;
+      width: 100%;
+      height: 32px;
+      border: 2px solid var(--ink);
+      border-radius: 10px;
+      background: var(--paper2);
+      padding: 3px;
+      box-sizing: border-box;
+    }
+    .vf-battery-nub {
+      position: absolute;
+      right: -8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 6px;
+      height: 14px;
+      background: var(--ink);
+      border-radius: 0 3px 3px 0;
+    }
+    .vf-battery-fill {
+      height: 100%;
+      border-radius: 6px;
+      background: var(--primary);
+      transition: width 0.4s ease;
+    }
+    .vf-battery-fill.full { background: var(--green); }
+    .vf-battery-label {
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-soft);
+    }
     .vf-sub {
       font-size: 12px;
       color: var(--ink-soft);
@@ -1643,9 +1741,15 @@ function VocabApp() {
               <div className="vf-title">Učílky</div>
               <span className="vf-title-flags">🇨🇿 🇬🇧</span>
             </div>
-            <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
-              <HelpCircle size={22} color="#1e3a5f" />
-            </button>
+            <div className="vf-header-right">
+              <div className={`vf-streak-badge${streakData.streak > 0 ? " active" : ""}`} title="Počet dní v řadě">
+                <Flame size={16} />
+                {streakData.streak} {dayWord(streakData.streak)}
+              </div>
+              <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
+                <HelpCircle size={22} color="#1e3a5f" />
+              </button>
+            </div>
           </div>
           <div className="vf-body">
             {shouldShowBackupReminder() && (
@@ -1698,6 +1802,21 @@ function VocabApp() {
             {cards.length === 0 && (
               <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>
             )}
+
+            <div className="vf-battery-wrap">
+              <div className="vf-sub" style={{ marginBottom: 10 }}>Dnešní učení</div>
+              <div className="vf-battery">
+                <div className="vf-battery-nub" />
+                <div
+                  className={`vf-battery-fill${streakData.minutesToday >= 20 ? " full" : ""}`}
+                  style={{ width: `${Math.min(100, (streakData.minutesToday / 20) * 100)}%` }}
+                />
+              </div>
+              <div className="vf-battery-label">
+                {Math.floor(streakData.minutesToday)} / 20 min
+                {streakData.minutesToday >= 20 ? " 🔥 splněno na dnešek" : ""}
+              </div>
+            </div>
 
             <div className="vf-version">{APP_VERSION}</div>
           </div>
