@@ -69,7 +69,7 @@ const HomeIcon = (p) => <Icon {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.9 · 2026-09-05";
+const APP_VERSION = "v2.11 · 2026-09-05";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -1031,6 +1031,17 @@ function VocabApp() {
       box-shadow: 0 4px 0 #e8cf9c;
       color: #96702a;
     }
+    .vf-btn.direction {
+      background: var(--primary-soft);
+      box-shadow: 0 4px 0 #cfd0f0;
+      color: var(--primary-dark);
+      position: relative;
+    }
+    .vf-btn-flags {
+      margin-left: auto;
+      font-size: 15px;
+      letter-spacing: 1px;
+    }
     .vf-btn:disabled { opacity: 0.45; cursor: default; }
     .vf-problem-card {
       background: var(--paper2);
@@ -1661,6 +1672,17 @@ function VocabApp() {
               </div>
             </div>
 
+            <button
+              className="vf-btn direction"
+              onClick={() => saveSettings({ ...settings, direction: settings.direction === "en-cz" ? "cz-en" : "en-cz" })}
+            >
+              <ArrowLeftRight size={18} />
+              Směr: {settings.direction === "en-cz" ? "anglicky → česky" : "česky → anglicky"}
+              <span className="vf-btn-flags">
+                {settings.direction === "en-cz" ? "🇬🇧 🇨🇿" : "🇨🇿 🇬🇧"}
+              </span>
+            </button>
+
             <button className="vf-btn" disabled={dueCount === 0} onClick={startReview}>
               <RotateCcw size={18} /> Procvičovat {dueCount > 0 ? `(${Math.min(dueCount, 20)})` : ""}
             </button>
@@ -1672,14 +1694,6 @@ function VocabApp() {
                 <AlertTriangle size={18} /> Problémová slovíčka ({getProblemCards(settings.direction).length})
               </button>
             )}
-
-            <div
-              className="vf-toggle"
-              onClick={() => saveSettings({ ...settings, direction: settings.direction === "en-cz" ? "cz-en" : "en-cz" })}
-            >
-              <ArrowLeftRight size={14} />
-              Směr: {settings.direction === "en-cz" ? "anglicky → česky" : "česky → anglicky"}
-            </div>
 
             {cards.length === 0 && (
               <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>
@@ -2342,23 +2356,40 @@ function VocabApp() {
               {flipped && hintLevel > 0 && (
                 <div className="vf-hint-note">Použil(a) jsi nápovědu, proto teď nejde zvolit „Znám", ani přeskočit na vyšší úroveň, než na jaké slovíčko už je.</div>
               )}
-              {flipped && (
-                <div className="vf-skip-row">
-                  <span className="vf-skip-label">Tohle je moc snadné, přeskočit rovnou na:</span>
-                  <div className="vf-skip-buttons">
-                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 1 > curLvl} onClick={() => quickPromote(1)}>Level 2 · za 2 dny</button>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 2 > curLvl} onClick={() => quickPromote(2)}>Level 3 · za 4 dny</button>
+              {flipped && (() => {
+                const skipOptions = [
+                  { level: 1, label: "Level 2 · za 2 dny" },
+                  { level: 2, label: "Level 3 · za 4 dny" },
+                  { level: 3, label: "Level 4 · za týden" },
+                  { level: 4, label: "Level 5 · za 14 dní" },
+                  { level: 5, label: "Level 6 · za 30 dní" },
+                  { level: 6, label: "Level 7 · za 60 dní" },
+                ].filter((opt) => opt.level > curLvl);
+                if (skipOptions.length === 0) return null;
+                const rows = [];
+                for (let i = 0; i < skipOptions.length; i += 2) {
+                  rows.push(skipOptions.slice(i, i + 2));
+                }
+                return (
+                  <div className="vf-skip-row">
+                    <span className="vf-skip-label">Tohle je moc snadné, přeskočit rovnou na:</span>
+                    {rows.map((row, i) => (
+                      <div className="vf-skip-buttons" style={i > 0 ? { marginTop: 6 } : undefined} key={i}>
+                        {row.map((opt) => (
+                          <button
+                            key={opt.level}
+                            className="vf-skip-btn"
+                            disabled={hintLevel > 0}
+                            onClick={() => quickPromote(opt.level)}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
                   </div>
-                  <div className="vf-skip-buttons" style={{ marginTop: 6 }}>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 3 > curLvl} onClick={() => quickPromote(3)}>Level 4 · za týden</button>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 4 > curLvl} onClick={() => quickPromote(4)}>Level 5 · za 14 dní</button>
-                  </div>
-                  <div className="vf-skip-buttons" style={{ marginTop: 6 }}>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 5 > curLvl} onClick={() => quickPromote(5)}>Level 6 · za 30 dní</button>
-                    <button className="vf-skip-btn" disabled={hintLevel > 0 && 6 > curLvl} onClick={() => quickPromote(6)}>Level 7 · za 60 dní</button>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
               {lastAction && (
                 <button className="vf-undo-btn" onClick={undoLastAnswer}>
                   <RotateCcw size={14} /> Vrátit poslední odpověď
