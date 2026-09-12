@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Učílky</title>
 <link rel="manifest" href="manifest.json" />
-<meta name="theme-color" content="#1e3a5f" />
+<meta name="theme-color" content="#045965" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -67,11 +67,12 @@ const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 1
 const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 const Package = (p) => <Icon {...p}><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></Icon>;
 const HomeIcon = (p) => <Icon {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><polyline points="9 22 9 12 15 12 15 22" /></Icon>;
+const BarChart = (p) => <Icon {...p}><line x1="12" y1="20" x2="12" y2="10" /><line x1="18" y1="20" x2="18" y2="4" /><line x1="6" y1="20" x2="6" y2="16" /></Icon>;
 const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" /></Icon>;
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.26 · 2026-09-12";
+const APP_VERSION = "v2.32 · 2026-09-12";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -110,18 +111,24 @@ function normalizeSearch(str) {
 
 // Speaks an English word/phrase aloud using the browser's built-in
 // text-to-speech (Web Speech API). Works offline, no API key needed.
-function speakEnglish(text) {
+function speakText(text, lang) {
   if (!text) return;
   if (!("speechSynthesis" in window)) return;
   try {
     window.speechSynthesis.cancel(); // stop anything currently playing
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
+    utterance.lang = lang;
     utterance.rate = 0.95;
     window.speechSynthesis.speak(utterance);
   } catch (e) {
     console.warn("Speech synthesis failed:", e);
   }
+}
+function speakEnglish(text) {
+  speakText(text, "en-US");
+}
+function speakCzech(text) {
+  speakText(text, "cs-CZ");
 }
 
 // Some browsers (especially Chrome) initialize the text-to-speech engine
@@ -1173,6 +1180,41 @@ function VocabApp() {
     }
     .vf-body { flex: 1; padding: 20px; padding-bottom: 92px; }
     .vf-stat-row { display: flex; gap: 12px; margin-bottom: 22px; }
+    .vf-stat-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .vf-stat-bar-label {
+      width: 58px;
+      flex-shrink: 0;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-soft);
+    }
+    .vf-stat-bar-track {
+      flex: 1;
+      height: 14px;
+      background: var(--paper2);
+      border-radius: 7px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(51,56,102,0.08) inset;
+    }
+    .vf-stat-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%);
+      border-radius: 7px;
+      transition: width 0.4s ease;
+    }
+    .vf-stat-bar-count {
+      width: 26px;
+      flex-shrink: 0;
+      text-align: right;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink);
+    }
     .vf-stat {
       flex: 1;
       background: var(--paper2);
@@ -1422,7 +1464,7 @@ function VocabApp() {
       text-align: center;
       box-shadow: 0 6px 20px rgba(51,56,102,0.14);
     }
-    .vf-face .vf-word { font-size: 28px; font-weight: 700; word-break: break-word; }
+    .vf-face .vf-word { font-size: 33px; font-weight: 700; word-break: break-word; }
     .vf-face .vf-tag {
       position: absolute;
       top: 12px;
@@ -1486,18 +1528,22 @@ function VocabApp() {
     }
     .vf-speak-btn-corner:active { background: var(--ink); color: var(--paper); }
     .vf-example-btn {
-      margin-top: 10px;
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
       display: flex;
       align-items: center;
       gap: 5px;
       background: none;
       border: 1.5px solid var(--line);
       border-radius: 14px;
-      padding: 8px 14px;
-      font-size: 12.5px;
+      padding: 7px 12px;
+      font-size: 11.5px;
       font-weight: 600;
-      color: var(--primary-dark);
+      color: var(--ink-soft);
       cursor: pointer;
+      white-space: nowrap;
     }
     .vf-example-btn:disabled { opacity: 0.5; cursor: default; }
     .vf-example-sentence {
@@ -1524,7 +1570,7 @@ function VocabApp() {
       position: absolute;
       top: 10px;
       right: 14px;
-      font-size: 16px;
+      font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.03em;
       color: var(--ink-soft);
@@ -1617,10 +1663,12 @@ function VocabApp() {
     }
     .vf-progress { text-align: center; font-size: 12px; color: var(--ink-soft); margin-bottom: 14px; }
     .vf-undo-btn {
-      display: flex; align-items: center; justify-content: center; gap: 6px;
-      width: 100%; background: none; border: none; color: var(--ink-soft);
-      font-size: 12px; padding: 8px; cursor: pointer; text-decoration: underline;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      width: 100%; background: var(--paper2); border: 1.5px solid var(--line);
+      border-radius: 12px; color: var(--ink-soft);
+      font-size: 13.5px; font-weight: 600; padding: 11px; cursor: pointer;
     }
+    .vf-undo-btn:active { background: var(--primary-soft); color: var(--primary-dark); border-color: var(--primary); }
     .vf-danger-zone {
       margin-top: 28px;
       padding-top: 16px;
@@ -1739,15 +1787,16 @@ function VocabApp() {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 3px;
+      gap: 2px;
       background: none;
       border: none;
-      padding: 8px 2px;
-      font-size: 11px;
+      padding: 8px 1px;
+      font-size: 9.5px;
       font-weight: 600;
       color: var(--ink-soft);
       cursor: pointer;
       border-radius: 12px;
+      white-space: nowrap;
     }
     .vf-bottom-nav-item.active {
       color: var(--primary-dark);
@@ -2484,6 +2533,78 @@ function VocabApp() {
         </>
       )}
 
+      {screen === "stats" && (() => {
+        const direction = settings.direction;
+        const today = todayStr();
+        const levelOrder = [-1, 0, 1, 2, 3, 4, 5, 6, 7];
+        const levelLabel = (lvl) => (lvl === -1 ? "Nové" : `Level ${lvl + 1}`);
+        const normalized = (c) => {
+          const lvl = getProgress(c, direction).level;
+          return lvl === null || lvl === undefined ? -1 : lvl;
+        };
+        const counts = levelOrder.map((lvl) => ({
+          lvl,
+          count: (cards || []).filter((c) => normalized(c) === lvl).length,
+        }));
+        const maxCount = Math.max(1, ...counts.map((c) => c.count));
+        const dueTodayCount = (cards || []).filter((c) => {
+          const p = getProgress(c, direction);
+          return p.nextDue === null || p.nextDue <= today;
+        }).length;
+        const problemCount = getProblemCards(direction).length;
+        const displayStreak = (() => {
+          const daysSinceCredit = streakData.streakCreditedForDate
+            ? Math.floor((new Date(today) - new Date(streakData.streakCreditedForDate)) / 86400000)
+            : Infinity;
+          return daysSinceCredit <= 1 ? streakData.streak : 0;
+        })();
+        return (
+          <>
+            <div className="vf-header">
+              <div>
+                <div className="vf-title">Učílky</div>
+              </div>
+              <BarChart size={22} color="#1e3a5f" />
+            </div>
+            <div className="vf-body">
+              <div className="vf-stat-row">
+                <div className="vf-stat">
+                  <b>{cards.length}</b>
+                  <span>Celkem</span>
+                </div>
+                <div className="vf-stat">
+                  <b>{dueTodayCount}</b>
+                  <span>K opakování</span>
+                </div>
+              </div>
+              <div className="vf-stat-row">
+                <div className="vf-stat">
+                  <b>{problemCount}</b>
+                  <span>Problémová</span>
+                </div>
+                <div className="vf-stat">
+                  <b>{displayStreak}</b>
+                  <span>{dayWord(displayStreak)} v řadě</span>
+                </div>
+              </div>
+
+              <div className="vf-sub" style={{ margin: "22px 0 12px" }}>
+                Rozložení podle úrovně ({direction === "en-cz" ? "anglicky → česky" : "česky → anglicky"})
+              </div>
+              {counts.map(({ lvl, count }) => (
+                <div className="vf-stat-bar-row" key={lvl}>
+                  <span className="vf-stat-bar-label">{levelLabel(lvl)}</span>
+                  <div className="vf-stat-bar-track">
+                    <div className="vf-stat-bar-fill" style={{ width: `${(count / maxCount) * 100}%` }} />
+                  </div>
+                  <span className="vf-stat-bar-count">{count}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        );
+      })()}
+
       {screen === "packs" && (
         <>
           <div className="vf-header">
@@ -2640,7 +2761,13 @@ function VocabApp() {
                         <Volume2 size={26} />
                       </button>
                     ) : (
-                      <span className="vf-tag">CZ</span>
+                      <button
+                        className="vf-speak-btn-corner"
+                        onClick={(e) => { e.stopPropagation(); speakCzech(card.cz); }}
+                        title="Přehrát výslovnost"
+                      >
+                        <Volume2 size={26} />
+                      </button>
                     )}
                     {!flipped && (
                       <button
@@ -2656,10 +2783,10 @@ function VocabApp() {
                       <>
                         <button
                           className="vf-example-btn"
-                          disabled={exampleLoading}
-                          onClick={(e) => { e.stopPropagation(); fetchExampleSentence(card.en); }}
+                          disabled={true}
+                          title="Zatím nedostupné — čeká na kvalitnější zdroj vět"
                         >
-                          <Quote size={14} /> {exampleLoading ? "Hledám větu…" : "Příkladová věta"}
+                          <Quote size={14} /> Příkladová věta (brzy)
                         </button>
                         {exampleSentence && <div className="vf-example-sentence">{exampleSentence}</div>}
                         {exampleError && <div className="vf-example-error">{exampleError}</div>}
@@ -2677,7 +2804,13 @@ function VocabApp() {
                         <Volume2 size={26} />
                       </button>
                     ) : (
-                      <span className="vf-tag">EN</span>
+                      <button
+                        className="vf-speak-btn-corner"
+                        onClick={(e) => { e.stopPropagation(); speakCzech(card.cz); }}
+                        title="Přehrát výslovnost"
+                      >
+                        <Volume2 size={26} />
+                      </button>
                     )}
                     <span className="vf-level-badge">{curLevelLabel}</span>
                     <div className="vf-word">{back}</div>
@@ -2685,10 +2818,10 @@ function VocabApp() {
                       <>
                         <button
                           className="vf-example-btn"
-                          disabled={exampleLoading}
-                          onClick={(e) => { e.stopPropagation(); fetchExampleSentence(card.en); }}
+                          disabled={true}
+                          title="Zatím nedostupné — čeká na kvalitnější zdroj vět"
                         >
-                          <Quote size={14} /> {exampleLoading ? "Hledám větu…" : "Příkladová věta"}
+                          <Quote size={14} /> Příkladová věta (brzy)
                         </button>
                         {exampleSentence && <div className="vf-example-sentence">{exampleSentence}</div>}
                         {exampleError && <div className="vf-example-error">{exampleError}</div>}
@@ -2739,7 +2872,7 @@ function VocabApp() {
               )}
               {lastAction && (
                 <button className="vf-undo-btn" onClick={undoLastAnswer}>
-                  <RotateCcw size={14} /> Vrátit poslední odpověď
+                  <RotateCcw size={16} /> Vrátit poslední odpověď
                 </button>
               )}
 
@@ -2897,7 +3030,7 @@ function VocabApp() {
             </p>
             {lastAction && (
               <button className="vf-undo-btn" style={{ marginBottom: 12 }} onClick={undoLastAnswer}>
-                <RotateCcw size={14} /> Vrátit poslední odpověď
+                <RotateCcw size={16} /> Vrátit poslední odpověď
               </button>
             )}
             <button className="vf-btn" onClick={() => setScreen("home")}>Zpět na start</button>
@@ -2905,22 +3038,26 @@ function VocabApp() {
         </>
       )}
 
-      {(screen === "home" || screen === "list" || screen === "packs" || screen === "backup") && (
+      {(screen === "home" || screen === "list" || screen === "stats" || screen === "packs" || screen === "backup") && (
         <div className="vf-bottom-nav">
           <button className={`vf-bottom-nav-item${screen === "home" ? " active" : ""}`} onClick={() => setScreen("home")}>
-            <HomeIcon size={20} />
+            <HomeIcon size={18} />
             Domů
           </button>
           <button className={`vf-bottom-nav-item${screen === "list" ? " active" : ""}`} onClick={() => setScreen("list")}>
-            <BookOpen size={20} />
+            <BookOpen size={18} />
             Seznam
           </button>
+          <button className={`vf-bottom-nav-item${screen === "stats" ? " active" : ""}`} onClick={() => setScreen("stats")}>
+            <BarChart size={18} />
+            Statistika
+          </button>
           <button className={`vf-bottom-nav-item${screen === "packs" ? " active" : ""}`} onClick={() => setScreen("packs")}>
-            <Package size={20} />
+            <Package size={18} />
             Balíčky
           </button>
           <button className={`vf-bottom-nav-item${screen === "backup" ? " active" : ""}`} onClick={() => setScreen("backup")}>
-            <Download size={20} />
+            <Download size={18} />
             Záloha
           </button>
         </div>
