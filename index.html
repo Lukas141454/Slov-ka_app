@@ -62,6 +62,7 @@ const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2
 const ChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9" /></Icon>;
 const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 const Lightbulb = (p) => <Icon {...p}><path d="M9 18h6" /><path d="M10 22h4" /><path d="M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.6 1 2.5h6c0-.9.4-1.9 1-2.5A6 6 0 0 0 12 2Z" /></Icon>;
+const Quote = (p) => <Icon {...p}><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" /></Icon>;
 const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></Icon>;
 const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 const Package = (p) => <Icon {...p}><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></Icon>;
@@ -70,7 +71,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.19 · 2026-09-09";
+const APP_VERSION = "v2.26 · 2026-09-12";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -191,6 +192,39 @@ function VocabApp() {
   const [qIndex, setQIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [hintLevel, setHintLevel] = useState(0);
+  const [exampleSentence, setExampleSentence] = useState(null);
+  const [exampleLoading, setExampleLoading] = useState(false);
+  const [exampleError, setExampleError] = useState("");
+
+  function resetExampleSentence() {
+    setExampleSentence(null);
+    setExampleError("");
+  }
+
+  async function fetchExampleSentence(word) {
+    if (!word) return;
+    setExampleLoading(true);
+    setExampleError("");
+    setExampleSentence(null);
+    try {
+      const res = await fetch(
+        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|cs`
+      );
+      const data = await res.json();
+      const matches = Array.isArray(data.matches) ? data.matches : [];
+      const candidate = matches.find(
+        (m) => m && m.segment && m.segment.trim().toLowerCase() !== word.trim().toLowerCase()
+      );
+      if (candidate) {
+        setExampleSentence(candidate.segment.trim());
+      } else {
+        setExampleError("Příklad se nenašel.");
+      }
+    } catch (e) {
+      setExampleError("Nepodařilo se připojit k internetu.");
+    }
+    setExampleLoading(false);
+  }
   const [sessionStats, setSessionStats] = useState({ know: 0, almost: 0, dont: 0, skip: 0 });
   const [lastAction, setLastAction] = useState(null);
   const [lastBackupAt, setLastBackupAt] = useState(null);
@@ -495,6 +529,7 @@ function VocabApp() {
     setQIndex(0);
     setFlipped(false);
     setHintLevel(0);
+    resetExampleSentence();
     setSessionStats({ know: 0, almost: 0, dont: 0, skip: 0 });
     setLastAction(null);
     setScreen("review");
@@ -556,6 +591,7 @@ function VocabApp() {
       setQIndex((i) => i + 1);
       setFlipped(false);
     setHintLevel(0);
+    resetExampleSentence();
     }
   }
 
@@ -583,6 +619,7 @@ function VocabApp() {
     setQIndex(qIndexAtAnswer);
     setFlipped(false);
     setHintLevel(0);
+    resetExampleSentence();
     setLastAction(null);
     setScreen("review");
   }
@@ -596,9 +633,10 @@ function VocabApp() {
     const prog = getProgress(card, direction);
     const currentLevel = prog.level === null || prog.level === undefined ? -1 : prog.level;
 
-    // Never downgrade — if the card is already at or above the target level
-    // (and thus already scheduled further out), just move on without touching it.
-    if (currentLevel < targetLevel) {
+    // Set the card exactly to the level you tapped — works in either
+    // direction, so you can bump it up when it's easier than the schedule
+    // assumed, or pull it back down when it's actually harder than that.
+    if (currentLevel !== targetLevel) {
       const nextDue = addDays(todayStr(), INTERVALS[targetLevel]);
       setLastAction({
         cardId: card.id,
@@ -625,6 +663,7 @@ function VocabApp() {
       setQIndex((i) => i + 1);
       setFlipped(false);
     setHintLevel(0);
+    resetExampleSentence();
     }
   }
 
@@ -647,6 +686,7 @@ function VocabApp() {
     setQueue(newQueue);
     setFlipped(false);
     setHintLevel(0);
+    resetExampleSentence();
     setDeleteConfirmId(null);
     if (newQueue.length === 0 || qIndex >= newQueue.length) {
       setScreen("summary");
@@ -1048,10 +1088,6 @@ function VocabApp() {
       align-items: baseline;
       gap: 10px;
     }
-    .vf-title-flags {
-      font-size: 18px;
-      letter-spacing: 2px;
-    }
     .vf-header-right {
       display: flex;
       align-items: center;
@@ -1186,12 +1222,52 @@ function VocabApp() {
       color: var(--primary-dark);
       position: relative;
     }
+    .vf-btn.direction.centered .vf-btn-flags { margin-left: 0; }
     .vf-btn-flags {
       margin-left: auto;
       font-size: 15px;
       letter-spacing: 1px;
     }
     .vf-btn:disabled { opacity: 0.45; cursor: default; }
+    .vf-review-dial-wrap {
+      display: flex;
+      justify-content: center;
+      margin: 24px 0;
+    }
+    .vf-review-dial {
+      width: 168px;
+      height: 168px;
+      border-radius: 50%;
+      border: none;
+      background: radial-gradient(circle at 35% 30%, #9195ec 0%, var(--primary) 55%, var(--primary-dark) 100%);
+      box-shadow:
+        0 8px 0 var(--primary-dark),
+        0 12px 20px rgba(51,56,102,0.3),
+        0 2px 0 rgba(255,255,255,0.25) inset;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      transition: transform 0.05s ease;
+    }
+    .vf-review-dial:active { transform: translateY(4px); box-shadow: 0 4px 0 var(--primary-dark), 0 6px 12px rgba(51,56,102,0.25); }
+    .vf-review-dial:disabled { opacity: 0.45; cursor: default; }
+    .vf-review-dial-label { font-size: 16px; font-weight: 700; }
+    .vf-review-dial-count {
+      font-family: 'Caveat', cursive;
+      font-size: 26px;
+      line-height: 1;
+      margin-top: 2px;
+    }
+    .vf-secondary-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .vf-secondary-row .vf-btn { width: auto; flex: 1; }
     .vf-problem-card {
       background: var(--paper2);
       border: none;
@@ -1391,6 +1467,52 @@ function VocabApp() {
       flex-shrink: 0;
     }
     .vf-speak-btn:active { background: var(--ink); color: var(--paper); }
+    .vf-speak-btn-corner {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--primary-soft);
+      border: none;
+      box-shadow: 0 2px 6px rgba(51,56,102,0.12);
+      border-radius: 50%;
+      width: 56px;
+      height: 56px;
+      color: var(--primary-dark);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .vf-speak-btn-corner:active { background: var(--ink); color: var(--paper); }
+    .vf-example-btn {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: none;
+      border: 1.5px solid var(--line);
+      border-radius: 14px;
+      padding: 8px 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--primary-dark);
+      cursor: pointer;
+    }
+    .vf-example-btn:disabled { opacity: 0.5; cursor: default; }
+    .vf-example-sentence {
+      margin-top: 10px;
+      max-width: 90%;
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--ink-soft);
+      text-align: center;
+    }
+    .vf-example-error {
+      margin-top: 8px;
+      font-size: 11.5px;
+      color: var(--red);
+    }
     .vf-hint-letters {
       margin-top: 10px;
       font-size: 18px;
@@ -1402,13 +1524,14 @@ function VocabApp() {
       position: absolute;
       top: 10px;
       right: 14px;
-      font-size: 10px;
-      letter-spacing: 0.05em;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
       color: var(--ink-soft);
       background: var(--paper);
       border: 1px solid var(--line);
       border-radius: 10px;
-      padding: 3px 9px;
+      padding: 4px 10px;
     }
     .vf-hint-note {
       text-align: center;
@@ -1814,7 +1937,6 @@ function VocabApp() {
           <div className="vf-header">
             <div className="vf-title-row">
               <div className="vf-title">Učílky</div>
-              <span className="vf-title-flags">🇨🇿 🇬🇧</span>
             </div>
             <div className="vf-header-right">
               <div className={`vf-streak-badge${displayStreak > 0 ? " active" : ""}`} title="Počet dní v řadě">
@@ -1852,27 +1974,34 @@ function VocabApp() {
             </div>
 
             <button
-              className="vf-btn direction"
+              className="vf-btn direction centered"
               onClick={() => saveSettings({ ...settings, direction: settings.direction === "en-cz" ? "cz-en" : "en-cz" })}
             >
               <ArrowLeftRight size={18} />
-              Směr: {settings.direction === "en-cz" ? "anglicky → česky" : "česky → anglicky"}
+              Směr
               <span className="vf-btn-flags">
                 {settings.direction === "en-cz" ? "🇬🇧 🇨🇿" : "🇨🇿 🇬🇧"}
               </span>
             </button>
 
-            <button className="vf-btn" disabled={dueCount === 0} onClick={startReview}>
-              <RotateCcw size={18} /> Procvičovat {dueCount > 0 ? `(${Math.min(dueCount, 20)})` : ""}
-            </button>
-            <button className="vf-btn secondary" onClick={() => setScreen("add")}>
-              <Plus size={18} /> Přidat slovíčka
-            </button>
-            {getProblemCards(settings.direction).length > 0 && (
-              <button className="vf-btn problem" onClick={() => setScreen("problems")}>
-                <AlertTriangle size={18} /> Problémová slovíčka ({getProblemCards(settings.direction).length})
+            <div className="vf-review-dial-wrap">
+              <button className="vf-review-dial" disabled={dueCount === 0} onClick={startReview}>
+                <RotateCcw size={30} />
+                <span className="vf-review-dial-label">Procvičovat</span>
+                {dueCount > 0 && <span className="vf-review-dial-count">{Math.min(dueCount, 20)}</span>}
               </button>
-            )}
+            </div>
+
+            <div className="vf-secondary-row">
+              <button className="vf-btn secondary" style={{ marginBottom: 0 }} onClick={() => setScreen("add")}>
+                <Plus size={18} /> Přidat slovíčka
+              </button>
+              {getProblemCards(settings.direction).length > 0 && (
+                <button className="vf-btn problem" style={{ marginBottom: 0 }} onClick={() => setScreen("problems")}>
+                  <AlertTriangle size={18} /> Problémová slovíčka ({getProblemCards(settings.direction).length})
+                </button>
+              )}
+            </div>
 
             {cards.length === 0 && (
               <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>
@@ -1893,7 +2022,6 @@ function VocabApp() {
               </div>
             </div>
 
-            <div className="vf-version">{APP_VERSION}</div>
           </div>
         </>
         );
@@ -2098,6 +2226,7 @@ function VocabApp() {
                 nebyla čistě z paměti. Zůstane k dispozici jen „Skoro" a „Neznám".
               </p>
             </div>
+            <div className="vf-version">{APP_VERSION}</div>
           </div>
         </>
       )}
@@ -2165,7 +2294,6 @@ function VocabApp() {
           <div className="vf-header">
             <div className="vf-title-row">
               <div className="vf-title">Učílky</div>
-              <span className="vf-title-flags">🇨🇿 🇬🇧</span>
             </div>
             <BookOpen size={22} color="#1e3a5f" />
           </div>
@@ -2361,7 +2489,6 @@ function VocabApp() {
           <div className="vf-header">
             <div className="vf-title-row">
               <div className="vf-title">Učílky</div>
-              <span className="vf-title-flags">🇨🇿 🇬🇧</span>
             </div>
             <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
               <HelpCircle size={22} color="#1e3a5f" />
@@ -2502,9 +2629,19 @@ function VocabApp() {
               ) : (
               <>
               <div className="vf-card-wrap">
-                <div key={card.id} className={`vf-card${flipped ? " flipped" : ""}`} onClick={() => setFlipped((f) => !f)}>
+                <div key={card.id} className={`vf-card${flipped ? " flipped" : ""}`} onClick={() => { setFlipped((f) => !f); resetExampleSentence(); }}>
                   <div className="vf-face">
-                    <span className="vf-tag">{settings.direction === "en-cz" ? "EN" : "CZ"}</span>
+                    {settings.direction === "en-cz" ? (
+                      <button
+                        className="vf-speak-btn-corner"
+                        onClick={(e) => { e.stopPropagation(); speakEnglish(card.en); }}
+                        title="Přehrát výslovnost"
+                      >
+                        <Volume2 size={26} />
+                      </button>
+                    ) : (
+                      <span className="vf-tag">CZ</span>
+                    )}
                     {!flipped && (
                       <button
                         className="vf-hint-corner-btn"
@@ -2516,28 +2653,46 @@ function VocabApp() {
                     )}
                     <div className="vf-word">{front}</div>
                     {settings.direction === "en-cz" && (
-                      <button
-                        className="vf-speak-btn"
-                        onClick={(e) => { e.stopPropagation(); speakEnglish(card.en); }}
-                        title="Přehrát výslovnost"
-                      >
-                        <Volume2 size={26} />
-                      </button>
+                      <>
+                        <button
+                          className="vf-example-btn"
+                          disabled={exampleLoading}
+                          onClick={(e) => { e.stopPropagation(); fetchExampleSentence(card.en); }}
+                        >
+                          <Quote size={14} /> {exampleLoading ? "Hledám větu…" : "Příkladová věta"}
+                        </button>
+                        {exampleSentence && <div className="vf-example-sentence">{exampleSentence}</div>}
+                        {exampleError && <div className="vf-example-error">{exampleError}</div>}
+                      </>
                     )}
                     {hintLevel > 0 && <div className="vf-hint-letters">{hintDisplay}</div>}
                   </div>
                   <div className="vf-face back">
-                    <span className="vf-tag">{settings.direction === "en-cz" ? "CZ" : "EN"}</span>
-                    <span className="vf-level-badge">{curLevelLabel}</span>
-                    <div className="vf-word">{back}</div>
-                    {settings.direction === "cz-en" && (
+                    {settings.direction === "cz-en" ? (
                       <button
-                        className="vf-speak-btn"
+                        className="vf-speak-btn-corner"
                         onClick={(e) => { e.stopPropagation(); speakEnglish(card.en); }}
                         title="Přehrát výslovnost"
                       >
                         <Volume2 size={26} />
                       </button>
+                    ) : (
+                      <span className="vf-tag">EN</span>
+                    )}
+                    <span className="vf-level-badge">{curLevelLabel}</span>
+                    <div className="vf-word">{back}</div>
+                    {settings.direction === "cz-en" && (
+                      <>
+                        <button
+                          className="vf-example-btn"
+                          disabled={exampleLoading}
+                          onClick={(e) => { e.stopPropagation(); fetchExampleSentence(card.en); }}
+                        >
+                          <Quote size={14} /> {exampleLoading ? "Hledám větu…" : "Příkladová věta"}
+                        </button>
+                        {exampleSentence && <div className="vf-example-sentence">{exampleSentence}</div>}
+                        {exampleError && <div className="vf-example-error">{exampleError}</div>}
+                      </>
                     )}
                   </div>
                 </div>
