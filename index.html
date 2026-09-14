@@ -64,6 +64,7 @@ const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><path d=
 const Lightbulb = (p) => <Icon {...p}><path d="M9 18h6" /><path d="M10 22h4" /><path d="M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.6 1 2.5h6c0-.9.4-1.9 1-2.5A6 6 0 0 0 12 2Z" /></Icon>;
 const Quote = (p) => <Icon {...p}><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" /></Icon>;
 const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></Icon>;
+const VolumeX = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" /></Icon>;
 const AlertTriangle = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 const Package = (p) => <Icon {...p}><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></Icon>;
 const HomeIcon = (p) => <Icon {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><polyline points="9 22 9 12 15 12 15 22" /></Icon>;
@@ -72,12 +73,13 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.36 · 2026-09-13";
+const APP_VERSION = "v2.38 · 2026-09-14";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
 const PACKS_KEY = "vocab-packs";
 const UNSPLASH_KEY_STORAGE = "vocab-unsplash-key";
+const AUTO_SPEAK_KEY = "vocab-auto-speak";
 const STREAK_KEY = "vocab-streak";
 const LEVEL5_LOG_KEY = "vocab-level5-log";
 
@@ -233,6 +235,17 @@ function VocabApp() {
     setExampleError("");
   }
 
+  function toggleAutoSpeak() {
+    setAutoSpeakEnabled((prev) => {
+      const next = !prev;
+      if (!next && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      window.storage.set(AUTO_SPEAK_KEY, next ? "on" : "off").catch(() => {});
+      return next;
+    });
+  }
+
   async function fetchExampleSentence(word) {
     if (!word) return;
     setExampleLoading(true);
@@ -267,6 +280,7 @@ function VocabApp() {
     streakCreditedForDate: null,
   });
   const [level5Log, setLevel5Log] = useState([]);
+  const [autoSpeakEnabled, setAutoSpeakEnabled] = useState(true);
   const [problemQueue, setProblemQueue] = useState([]);
   const [problemIndex, setProblemIndex] = useState(0);
   const [problemFlipped, setProblemFlipped] = useState(false);
@@ -335,6 +349,21 @@ function VocabApp() {
   }, [loaded]);
 
   useEffect(() => {
+    if (screen !== "review") return;
+    if (!autoSpeakEnabled) return;
+    const rawCard = queue[qIndex];
+    if (!rawCard) return;
+    const card = cards.find((c) => c.id === rawCard.id) || rawCard;
+    const currentIsEnglish = flipped ? settings.direction === "cz-en" : settings.direction === "en-cz";
+    if (currentIsEnglish) {
+      speakEnglish(card.en);
+    } else {
+      speakCzech(card.cz);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, qIndex, flipped, autoSpeakEnabled]);
+
+  useEffect(() => {
     async function checkForUpdate() {
       try {
         const res = await fetch("./index.html", { cache: "no-store" });
@@ -393,6 +422,10 @@ function VocabApp() {
       } catch {
         setLevel5Log([]);
       }
+      try {
+        const as = await window.storage.get(AUTO_SPEAK_KEY);
+        if (as) setAutoSpeakEnabled(as.value !== "off");
+      } catch {}
       try {
         const p = await window.storage.get(PACKS_KEY);
         setPacks(p ? JSON.parse(p.value) : []);
@@ -903,10 +936,20 @@ function VocabApp() {
     setTranslateLoading(false);
   }
 
-  function saveQuickAdd() {
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+
+  function saveQuickAdd(forceDuplicate) {
     const en = quickEn.trim();
     const cz = quickCz.trim();
     if (!en || !cz) return;
+    if (!forceDuplicate) {
+      const existing = (cards || []).find((c) => c.en.trim().toLowerCase() === en.toLowerCase());
+      if (existing) {
+        setDuplicateWarning(`Slovo „${existing.en}" už v appce máš (přeloženo jako „${existing.cz}"). Přidat i tak?`);
+        return;
+      }
+    }
+    setDuplicateWarning(null);
     const newCard = {
       id: uid(),
       en,
@@ -2028,6 +2071,15 @@ function VocabApp() {
       margin-bottom: 6px;
     }
     .vf-suggest-btn:disabled { opacity: 0.5; cursor: default; }
+    .vf-duplicate-warning {
+      background: #fdf3df;
+      border: 1.5px solid var(--amber);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      font-size: 12.5px;
+      color: #8a6420;
+    }
     .vf-pack-card {
       display: flex;
       justify-content: space-between;
@@ -2167,6 +2219,49 @@ function VocabApp() {
 
           </div>
         </>
+        );
+      })()}
+
+      {screen === "duplicates" && (() => {
+        const dupGroups = {};
+        (cards || []).forEach((c) => {
+          const key = c.en.trim().toLowerCase();
+          if (!dupGroups[key]) dupGroups[key] = [];
+          dupGroups[key].push(c);
+        });
+        const groups = Object.values(dupGroups).filter((g) => g.length > 1);
+        return (
+          <>
+            <div className="vf-header">
+              <button className="vf-icon-btn" onClick={() => setScreen("list")}><ArrowLeft size={20} color="#1e3a5f" /></button>
+              <div className="vf-title" style={{ fontSize: 26 }}>Duplicity</div>
+              <div style={{ width: 20 }} />
+            </div>
+            <div className="vf-body">
+              <p style={{ fontSize: 13, color: "#4a6580", marginBottom: 16 }}>
+                Stejné anglické slovo přidané víckrát — appka ho pak umí nabídnout k opakování
+                dvakrát za sebou. Nech si jen jednu kartičku u každé skupiny, ostatní smaž.
+              </p>
+              {groups.length === 0 && (
+                <div className="vf-empty">Žádné duplicity — všechno v pořádku.</div>
+              )}
+              {groups.map((group, i) => (
+                <div className="vf-problem-card" key={i}>
+                  <div className="vf-sub" style={{ marginBottom: 8 }}>{group[0].en}</div>
+                  {group.map((c) => (
+                    <div className="vf-list-item" key={c.id}>
+                      <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
+                      <div className="vf-list-actions">
+                        <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </>
         );
       })()}
 
@@ -2454,6 +2549,21 @@ function VocabApp() {
               placeholder="Hledat slovíčko…"
             />
             {(() => {
+              const dupGroups = {};
+              (cards || []).forEach((c) => {
+                const key = c.en.trim().toLowerCase();
+                if (!dupGroups[key]) dupGroups[key] = [];
+                dupGroups[key].push(c);
+              });
+              const dupCount = Object.values(dupGroups).filter((g) => g.length > 1).length;
+              if (dupCount === 0) return null;
+              return (
+                <button className="vf-btn problem" style={{ marginTop: 4, marginBottom: 16 }} onClick={() => setScreen("duplicates")}>
+                  <AlertTriangle size={18} /> Najít duplicity ({dupCount})
+                </button>
+              );
+            })()}
+            {(() => {
               if (!cards || cards.length === 0) {
                 return <div className="vf-empty">Zatím žádné kartičky. Přidej první slovíčka.</div>;
               }
@@ -2604,7 +2714,20 @@ function VocabApp() {
                 onKeyDown={(e) => { if (e.key === "Enter") saveQuickAdd(); }}
                 placeholder="česky"
               />
-              <button className="vf-btn" disabled={!quickEn.trim() || !quickCz.trim()} onClick={saveQuickAdd}>
+              {duplicateWarning && (
+                <div className="vf-duplicate-warning">
+                  <AlertTriangle size={14} /> {duplicateWarning}
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <button className="vf-btn secondary" style={{ marginBottom: 0, width: "auto", padding: "8px 14px", fontSize: 13 }} onClick={() => setDuplicateWarning(null)}>
+                      Zrušit
+                    </button>
+                    <button className="vf-btn" style={{ marginBottom: 0, width: "auto", padding: "8px 14px", fontSize: 13 }} onClick={() => saveQuickAdd(true)}>
+                      Přesto přidat
+                    </button>
+                  </div>
+                </div>
+              )}
+              <button className="vf-btn" disabled={!quickEn.trim() || !quickCz.trim()} onClick={() => saveQuickAdd()}>
                 <Plus size={18} /> Uložit
               </button>
               {quickSavedMsg && <div className="vf-quick-saved"><Check size={14} /> {quickSavedMsg}</div>}
@@ -2906,18 +3029,18 @@ function VocabApp() {
                     {settings.direction === "en-cz" ? (
                       <button
                         className="vf-speak-btn-corner"
-                        onClick={(e) => { e.stopPropagation(); speakEnglish(card.en); }}
-                        title="Přehrát výslovnost"
+                        onClick={(e) => { e.stopPropagation(); toggleAutoSpeak(); }}
+                        title={autoSpeakEnabled ? "Vypnout automatickou výslovnost" : "Zapnout automatickou výslovnost"}
                       >
-                        <Volume2 size={26} />
+                        {autoSpeakEnabled ? <Volume2 size={26} /> : <VolumeX size={26} />}
                       </button>
                     ) : (
                       <button
                         className="vf-speak-btn-corner"
-                        onClick={(e) => { e.stopPropagation(); speakCzech(card.cz); }}
-                        title="Přehrát výslovnost"
+                        onClick={(e) => { e.stopPropagation(); toggleAutoSpeak(); }}
+                        title={autoSpeakEnabled ? "Vypnout automatickou výslovnost" : "Zapnout automatickou výslovnost"}
                       >
-                        <Volume2 size={26} />
+                        {autoSpeakEnabled ? <Volume2 size={26} /> : <VolumeX size={26} />}
                       </button>
                     )}
                     {!flipped && (
@@ -2949,18 +3072,18 @@ function VocabApp() {
                     {settings.direction === "cz-en" ? (
                       <button
                         className="vf-speak-btn-corner"
-                        onClick={(e) => { e.stopPropagation(); speakEnglish(card.en); }}
-                        title="Přehrát výslovnost"
+                        onClick={(e) => { e.stopPropagation(); toggleAutoSpeak(); }}
+                        title={autoSpeakEnabled ? "Vypnout automatickou výslovnost" : "Zapnout automatickou výslovnost"}
                       >
-                        <Volume2 size={26} />
+                        {autoSpeakEnabled ? <Volume2 size={26} /> : <VolumeX size={26} />}
                       </button>
                     ) : (
                       <button
                         className="vf-speak-btn-corner"
-                        onClick={(e) => { e.stopPropagation(); speakCzech(card.cz); }}
-                        title="Přehrát výslovnost"
+                        onClick={(e) => { e.stopPropagation(); toggleAutoSpeak(); }}
+                        title={autoSpeakEnabled ? "Vypnout automatickou výslovnost" : "Zapnout automatickou výslovnost"}
                       >
-                        <Volume2 size={26} />
+                        {autoSpeakEnabled ? <Volume2 size={26} /> : <VolumeX size={26} />}
                       </button>
                     )}
                     <span className="vf-level-badge">{curLevelLabel}</span>
