@@ -61,6 +61,7 @@ const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1
 const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Icon>;
 const ChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9" /></Icon>;
 const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
+const SettingsIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></Icon>;
 const Lightbulb = (p) => <Icon {...p}><path d="M9 18h6" /><path d="M10 22h4" /><path d="M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.6 1 2.5h6c0-.9.4-1.9 1-2.5A6 6 0 0 0 12 2Z" /></Icon>;
 const Quote = (p) => <Icon {...p}><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" /></Icon>;
 const Volume2 = (p) => <Icon {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></Icon>;
@@ -73,13 +74,14 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.38 · 2026-09-14";
+const APP_VERSION = "v2.41 · 2026-09-17";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
 const PACKS_KEY = "vocab-packs";
 const UNSPLASH_KEY_STORAGE = "vocab-unsplash-key";
 const AUTO_SPEAK_KEY = "vocab-auto-speak";
+const ONBOARDING_KEY = "vocab-onboarding-seen";
 const STREAK_KEY = "vocab-streak";
 const LEVEL5_LOG_KEY = "vocab-level5-log";
 
@@ -214,7 +216,7 @@ function migrateCard(c) {
 function VocabApp() {
   const [screen, setScreen] = useState("home");
   const [cards, setCards] = useState(null);
-  const [settings, setSettings] = useState({ direction: "en-cz" });
+  const [settings, setSettings] = useState({ direction: "en-cz", dailyGoalMinutes: 20, reviewBatchSize: 20 });
   const [loaded, setLoaded] = useState(false);
   const [packs, setPacks] = useState([]);
 
@@ -244,6 +246,12 @@ function VocabApp() {
       window.storage.set(AUTO_SPEAK_KEY, next ? "on" : "off").catch(() => {});
       return next;
     });
+  }
+
+  function completeOnboarding() {
+    setShowOnboarding(false);
+    setOnboardingStep(0);
+    window.storage.set(ONBOARDING_KEY, "1").catch(() => {});
   }
 
   async function fetchExampleSentence(word) {
@@ -281,6 +289,8 @@ function VocabApp() {
   });
   const [level5Log, setLevel5Log] = useState([]);
   const [autoSpeakEnabled, setAutoSpeakEnabled] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0);
   const [problemQueue, setProblemQueue] = useState([]);
   const [problemIndex, setProblemIndex] = useState(0);
   const [problemFlipped, setProblemFlipped] = useState(false);
@@ -323,6 +333,7 @@ function VocabApp() {
   useEffect(() => {
     const TICK_SECONDS = 20; // granularity of time tracking during active review
     const reviewScreens = ["review", "problemReview"];
+    const goalMinutes = settings.dailyGoalMinutes || 20;
     const interval = setInterval(() => {
       if (!loaded) return; // avoid a race with the initial async load of streak data
       if (document.visibilityState !== "visible") return;
@@ -335,7 +346,7 @@ function VocabApp() {
           minutesDate = today;
         }
         minutesToday += TICK_SECONDS / 60;
-        if (minutesToday >= 20 && streakCreditedForDate !== today) {
+        if (minutesToday >= goalMinutes && streakCreditedForDate !== today) {
           const yesterday = addDays(today, -1);
           streak = streakCreditedForDate === yesterday ? streak + 1 : 1;
           streakCreditedForDate = today;
@@ -346,7 +357,7 @@ function VocabApp() {
       });
     }, TICK_SECONDS * 1000);
     return () => clearInterval(interval);
-  }, [loaded]);
+  }, [loaded, settings.dailyGoalMinutes]);
 
   useEffect(() => {
     if (screen !== "review") return;
@@ -406,7 +417,7 @@ function VocabApp() {
       }
       try {
         const s = await window.storage.get(SETTINGS_KEY);
-        if (s) setSettings(JSON.parse(s.value));
+        if (s) setSettings((prev) => ({ ...prev, ...JSON.parse(s.value) }));
       } catch {}
       try {
         const b = await window.storage.get(BACKUP_KEY);
@@ -426,6 +437,12 @@ function VocabApp() {
         const as = await window.storage.get(AUTO_SPEAK_KEY);
         if (as) setAutoSpeakEnabled(as.value !== "off");
       } catch {}
+      try {
+        const ob = await window.storage.get(ONBOARDING_KEY);
+        if (!ob) setShowOnboarding(true);
+      } catch {
+        setShowOnboarding(true);
+      }
       try {
         const p = await window.storage.get(PACKS_KEY);
         setPacks(p ? JSON.parse(p.value) : []);
@@ -584,12 +601,13 @@ function VocabApp() {
 
   function startReview() {
     const today = todayStr();
+    const batchSize = settings.reviewBatchSize || 20;
     const due = shuffle(
       cards.filter((c) => {
         const p = getProgress(c, settings.direction);
         return p.nextDue === null || p.nextDue <= today;
       })
-    ).slice(0, 20);
+    ).slice(0, batchSize);
     setQueue(due);
     setQIndex(0);
     setFlipped(false);
@@ -1585,7 +1603,7 @@ function VocabApp() {
         0 16px 28px rgba(51,56,102,0.20),
         0 1px 0 rgba(255,255,255,0.8) inset;
     }
-    .vf-face .vf-word { font-size: 33px; font-weight: 700; word-break: break-word; }
+    .vf-face .vf-word { font-size: 31px; font-weight: 700; word-break: break-word; }
     .vf-face .vf-tag {
       position: absolute;
       top: 12px;
@@ -1860,6 +1878,65 @@ function VocabApp() {
     }
     .vf-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; }
     .vf-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 60px 20px; color: var(--ink-soft); }
+    .vf-onboarding {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 40px 32px;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    .vf-onboarding-icon {
+      width: 108px;
+      height: 108px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #9195ec 0%, var(--primary) 55%, var(--primary-dark) 100%);
+      box-shadow: 0 8px 20px rgba(51,56,102,0.3);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 28px;
+    }
+    .vf-onboarding-title {
+      font-family: 'Caveat', cursive;
+      font-weight: 700;
+      font-size: 34px;
+      color: var(--ink);
+      margin-bottom: 14px;
+    }
+    .vf-onboarding-text {
+      font-size: 14.5px;
+      line-height: 1.6;
+      color: var(--ink-soft);
+      margin: 0 0 32px;
+      max-width: 320px;
+    }
+    .vf-onboarding-dots {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+    .vf-onboarding-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--line);
+    }
+    .vf-onboarding-dot.active { background: var(--primary); width: 22px; border-radius: 4px; }
+    .vf-onboarding .vf-btn { max-width: 280px; }
+    .vf-onboarding-skip {
+      background: none;
+      border: none;
+      color: var(--ink-soft);
+      font-size: 13px;
+      margin-top: 12px;
+      cursor: pointer;
+      text-decoration: underline;
+    }
     .vf-update-banner {
       display: flex;
       align-items: center;
@@ -1994,6 +2071,14 @@ function VocabApp() {
       padding-bottom: 4px;
     }
     .vf-help-section p { font-size: 13.5px; line-height: 1.5; color: var(--ink); margin: 0 0 8px; }
+    .vf-settings-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .vf-settings-row .vf-review-edit-input { width: 90px; flex: none; text-align: center; }
+    .vf-settings-unit { font-size: 13px; color: var(--ink-soft); font-weight: 600; }
     .vf-help-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
     .vf-help-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
     .vf-help-table td:first-child { font-weight: 600; }
@@ -2110,6 +2195,56 @@ function VocabApp() {
     );
   }
 
+  if (showOnboarding) {
+    const slides = [
+      {
+        icon: <HomeIcon size={44} />,
+        title: "Vítej v Učílkách!",
+        text: "Osobní appka na učení slovíček metodou opakování s rozestupy — slovíčka, která umíš dobře, se ti budou objevovat čím dál řidčeji, ta těžší naopak častěji.",
+      },
+      {
+        icon: <RotateCcw size={44} />,
+        title: "Jak funguje kartička",
+        text: "Klepnutím kartičku otočíš. U anglického slova je tlačítko výslovnosti — appka ho umí přehrát automaticky při každém zobrazení i otočení. Nevíš si jistý? Použij žárovku pro nápovědu.",
+      },
+      {
+        icon: <Flame size={44} />,
+        title: "Sleduj svůj pokrok",
+        text: `Plamínek nahoře počítá dny v řadě, kdy se učíš aspoň ${settings.dailyGoalMinutes || 20} minut denně — to sleduje i baterka na Domů. Appka ti taky sama upozorní na problémová slovíčka, která ti dělají potíže.`,
+      },
+      {
+        icon: <BarChart size={44} />,
+        title: "Prozkoumej appku",
+        text: "Dole najdeš Seznam všech slovíček, Statistiku pokroku, Balíčky pro hromadné přidávání a Zálohu dat. Kdykoliv se ztratíš, otazník na Domů tě zavede do podrobné nápovědy.",
+      },
+    ];
+    const slide = slides[onboardingStep];
+    const isLast = onboardingStep === slides.length - 1;
+    return (
+      <div className="vf-root">
+        <style>{styles}</style>
+        <div className="vf-onboarding">
+          <div className="vf-onboarding-icon">{slide.icon}</div>
+          <div className="vf-onboarding-title">{slide.title}</div>
+          <p className="vf-onboarding-text">{slide.text}</p>
+          <div className="vf-onboarding-dots">
+            {slides.map((_, i) => (
+              <span key={i} className={`vf-onboarding-dot${i === onboardingStep ? " active" : ""}`} />
+            ))}
+          </div>
+          <button className="vf-btn" onClick={() => (isLast ? completeOnboarding() : setOnboardingStep((s) => s + 1))}>
+            {isLast ? "Začít" : "Další"}
+          </button>
+          {!isLast && (
+            <button className="vf-onboarding-skip" onClick={completeOnboarding}>
+              Přeskočit
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="vf-root">
       <style>{styles}</style>
@@ -2138,6 +2273,9 @@ function VocabApp() {
                 <Flame size={16} />
                 {displayStreak} {dayWord(displayStreak)}
               </div>
+              <button className="vf-icon-btn" onClick={() => setScreen("settings")} title="Nastavení">
+                <SettingsIcon size={20} color="#1e3a5f" />
+              </button>
               <button className="vf-icon-btn" onClick={() => setScreen("help")} title="Jak funguje opakování?">
                 <HelpCircle size={22} color="#1e3a5f" />
               </button>
@@ -2183,7 +2321,7 @@ function VocabApp() {
               <button className="vf-review-dial" disabled={dueCount === 0} onClick={startReview}>
                 <RotateCcw size={30} />
                 <span className="vf-review-dial-label">Procvičovat</span>
-                {dueCount > 0 && <span className="vf-review-dial-count">{Math.min(dueCount, 20)}</span>}
+                {dueCount > 0 && <span className="vf-review-dial-count">{Math.min(dueCount, settings.reviewBatchSize || 20)}</span>}
               </button>
             </div>
 
@@ -2207,13 +2345,13 @@ function VocabApp() {
               <div className="vf-battery">
                 <div className="vf-battery-nub" />
                 <div
-                  className={`vf-battery-fill${displayMinutesToday >= 20 ? " full" : ""}`}
-                  style={{ width: `${Math.min(100, (displayMinutesToday / 20) * 100)}%` }}
+                  className={`vf-battery-fill${displayMinutesToday >= (settings.dailyGoalMinutes || 20) ? " full" : ""}`}
+                  style={{ width: `${Math.min(100, (displayMinutesToday / (settings.dailyGoalMinutes || 20)) * 100)}%` }}
                 />
               </div>
               <div className="vf-battery-label">
-                {Math.floor(displayMinutesToday)} / 20 min
-                {displayMinutesToday >= 20 ? " 🔥 splněno na dnešek" : ""}
+                {Math.floor(displayMinutesToday)} / {settings.dailyGoalMinutes || 20} min
+                {displayMinutesToday >= (settings.dailyGoalMinutes || 20) ? " 🔥 splněno na dnešek" : ""}
               </div>
             </div>
 
@@ -2376,6 +2514,62 @@ function VocabApp() {
         </>
       )}
 
+      {screen === "settings" && (
+        <>
+          <div className="vf-header">
+            <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
+            <div className="vf-title" style={{ fontSize: 26 }}>Nastavení</div>
+            <div style={{ width: 20 }} />
+          </div>
+          <div className="vf-body">
+            <div className="vf-help-section">
+              <h3>Denní cíl učení</h3>
+              <p>
+                Kolik minut aktivního opakování denně počítá appka jako splněný den (ovlivňuje
+                baterku i řadu dní).
+              </p>
+              <div className="vf-settings-row">
+                <input
+                  type="number"
+                  min="1"
+                  max="180"
+                  className="vf-review-edit-input"
+                  style={{ marginBottom: 0 }}
+                  value={settings.dailyGoalMinutes || 20}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(180, parseInt(e.target.value, 10) || 1));
+                    saveSettings({ ...settings, dailyGoalMinutes: v });
+                  }}
+                />
+                <span className="vf-settings-unit">minut</span>
+              </div>
+            </div>
+
+            <div className="vf-help-section">
+              <h3>Velikost sady k opakování</h3>
+              <p>
+                Kolik slovíček najednou appka nabídne v jedné sadě, když klepneš na "Procvičovat".
+              </p>
+              <div className="vf-settings-row">
+                <input
+                  type="number"
+                  min="5"
+                  max="100"
+                  className="vf-review-edit-input"
+                  style={{ marginBottom: 0 }}
+                  value={settings.reviewBatchSize || 20}
+                  onChange={(e) => {
+                    const v = Math.max(5, Math.min(100, parseInt(e.target.value, 10) || 5));
+                    saveSettings({ ...settings, reviewBatchSize: v });
+                  }}
+                />
+                <span className="vf-settings-unit">slovíček</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       {screen === "help" && (
         <>
           <div className="vf-header">
@@ -2384,6 +2578,11 @@ function VocabApp() {
             <div style={{ width: 20 }} />
           </div>
           <div className="vf-body">
+            <div className="vf-help-section">
+              <button className="vf-btn secondary" onClick={() => { setOnboardingStep(0); setShowOnboarding(true); }}>
+                <HomeIcon size={18} /> Zobrazit úvodní průvodce znovu
+              </button>
+            </div>
             <div className="vf-help-section">
               <h3>Úrovně (Level 1–8)</h3>
               <p>
