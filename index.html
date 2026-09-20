@@ -74,7 +74,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.41 · 2026-09-17";
+const APP_VERSION = "v2.46 · 2026-09-20";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -85,14 +85,23 @@ const ONBOARDING_KEY = "vocab-onboarding-seen";
 const STREAK_KEY = "vocab-streak";
 const LEVEL5_LOG_KEY = "vocab-level5-log";
 
+// Formats a Date using its LOCAL calendar date, not UTC — using
+// toISOString() here would silently shift the date backward by a day for
+// anyone in a timezone ahead of UTC (like Czech Republic) during the early
+// morning hours, since toISOString() always converts to UTC first.
+function dateToLocalStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 function todayStr() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return dateToLocalStr(new Date());
 }
 function addDays(base, days) {
   const d = new Date(base + "T00:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return dateToLocalStr(d);
 }
 // Monday-start week key for a given date string
 function getWeekStart(dateStr) {
@@ -100,7 +109,7 @@ function getWeekStart(dateStr) {
   const day = d.getDay(); // 0=Sun..6=Sat
   const diffToMonday = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diffToMonday);
-  return d.toISOString().slice(0, 10);
+  return dateToLocalStr(d);
 }
 function formatDayMonth(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
@@ -1878,6 +1887,25 @@ function VocabApp() {
     }
     .vf-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; }
     .vf-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 60px 20px; color: var(--ink-soft); }
+    .vf-loading-ring { transform: rotate(-90deg); }
+    .vf-loading-ring-track {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 5;
+    }
+    .vf-loading-ring-fill {
+      fill: none;
+      stroke: var(--primary);
+      stroke-width: 5;
+      stroke-linecap: round;
+      stroke-dasharray: 151;
+      animation: vf-ring-fill 1.3s ease-in-out infinite;
+    }
+    @keyframes vf-ring-fill {
+      0% { stroke-dashoffset: 151; }
+      50% { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: -151; }
+    }
     .vf-onboarding {
       flex: 1;
       display: flex;
@@ -1937,6 +1965,128 @@ function VocabApp() {
       cursor: pointer;
       text-decoration: underline;
     }
+    .vf-onb-mockup { margin-bottom: 24px; width: 100%; max-width: 300px; }
+    .vf-onb-badge {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--red);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .vf-onb-badge.inline {
+      position: static;
+      display: inline-flex;
+      margin-right: 6px;
+      flex-shrink: 0;
+    }
+    .vf-onb-card {
+      position: relative;
+      background: linear-gradient(180deg, #ffffff 0%, var(--paper2) 60%, #f1f0f8 100%);
+      border-radius: 18px;
+      box-shadow: 0 6px 16px rgba(51,56,102,0.18);
+      padding: 20px;
+      height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .vf-onb-card-speak {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--primary-soft);
+      color: var(--primary-dark);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .vf-onb-card-hint {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: #fffaf0;
+      color: var(--amber);
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 10px;
+      padding: 5px 9px;
+    }
+    .vf-onb-card-word { font-size: 22px; font-weight: 700; color: var(--ink); }
+    .vf-onb-row { display: flex; justify-content: center; margin-bottom: 16px; }
+    .vf-onb-streak {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--paper2);
+      color: #d9752b;
+      font-weight: 700;
+      font-size: 14px;
+      border-radius: 20px;
+      padding: 8px 16px;
+      box-shadow: 0 2px 6px rgba(51,56,102,0.1);
+    }
+    .vf-onb-battery-wrap { position: relative; display: flex; justify-content: center; margin-bottom: 4px; }
+    .vf-onb-battery {
+      position: relative;
+      width: 200px;
+      height: 26px;
+      border-radius: 10px;
+      background: var(--paper2);
+      box-shadow: 0 2px 4px rgba(51,56,102,0.12) inset;
+      padding: 3px;
+      box-sizing: border-box;
+    }
+    .vf-onb-battery-fill {
+      width: 65%;
+      height: 100%;
+      border-radius: 6px;
+      background: linear-gradient(180deg, #8489e6 0%, var(--primary) 100%);
+    }
+    .vf-onb-legend {
+      text-align: left;
+      font-size: 12.5px;
+      color: var(--ink-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .vf-onb-legend > div { display: flex; align-items: center; }
+    .vf-onb-navbar {
+      display: flex;
+      justify-content: space-between;
+      background: var(--paper2);
+      border-radius: 16px;
+      box-shadow: 0 6px 16px rgba(51,56,102,0.18);
+      padding: 10px 6px;
+    }
+    .vf-onb-navitem {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      font-size: 8.5px;
+      font-weight: 600;
+      color: var(--ink-soft);
+      flex: 1;
+    }
+    .vf-onb-navitem.active { color: var(--primary-dark); }
     .vf-update-banner {
       display: flex;
       align-items: center;
@@ -2188,7 +2338,10 @@ function VocabApp() {
       <div className="vf-root">
         <style>{styles}</style>
         <div className="vf-loading">
-          <Loader2 size={28} />
+          <svg className="vf-loading-ring" width="56" height="56" viewBox="0 0 56 56">
+            <circle className="vf-loading-ring-track" cx="28" cy="28" r="24" />
+            <circle className="vf-loading-ring-fill" cx="28" cy="28" r="24" />
+          </svg>
           <span>Načítám kartičky…</span>
         </div>
       </div>
@@ -2200,22 +2353,72 @@ function VocabApp() {
       {
         icon: <HomeIcon size={44} />,
         title: "Vítej v Učílkách!",
-        text: "Osobní appka na učení slovíček metodou opakování s rozestupy — slovíčka, která umíš dobře, se ti budou objevovat čím dál řidčeji, ta těžší naopak častěji.",
+        text: "Osobní appka na učení slovíček pomocí chytrého opakování. Slovíčka, která už dobře umíš, se budou objevovat méně často. Ta, která ti dělají potíže, naopak častěji.",
       },
       {
-        icon: <RotateCcw size={44} />,
         title: "Jak funguje kartička",
-        text: "Klepnutím kartičku otočíš. U anglického slova je tlačítko výslovnosti — appka ho umí přehrát automaticky při každém zobrazení i otočení. Nevíš si jistý? Použij žárovku pro nápovědu.",
+        text: "Klepnutím kartičku otočíš. U anglického slova najdeš tlačítko pro výslovnost. Appka ji může přehrát automaticky při každém zobrazení i otočení. Nevíš si rady? Klepni na žárovku a zobrazí se nápověda.",
+        visual: (
+          <div className="vf-onb-mockup">
+            <div className="vf-onb-card">
+              <div className="vf-onb-card-speak">
+                <Volume2 size={16} />
+                <span className="vf-onb-badge">1</span>
+              </div>
+              <div className="vf-onb-card-hint">
+                <Lightbulb size={12} /> Nápověda
+                <span className="vf-onb-badge">2</span>
+              </div>
+              <div className="vf-onb-card-word">Hello</div>
+            </div>
+            <div className="vf-onb-legend">
+              <div><span className="vf-onb-badge inline">1</span> Přehraje výslovnost nahlas</div>
+              <div><span className="vf-onb-badge inline">2</span> Postupně odhalí písmenka</div>
+            </div>
+          </div>
+        ),
       },
       {
-        icon: <Flame size={44} />,
         title: "Sleduj svůj pokrok",
-        text: `Plamínek nahoře počítá dny v řadě, kdy se učíš aspoň ${settings.dailyGoalMinutes || 20} minut denně — to sleduje i baterka na Domů. Appka ti taky sama upozorní na problémová slovíčka, která ti dělají potíže.`,
+        text: `Uč se alespoň ${settings.dailyGoalMinutes || 20} minut denně a buduj svou sérii. Plamínek nahoře ti ukáže, kolik dní už se držíš. Appka navíc pozná slovíčka, která ti dělají potíže, a upozorní tě na ně.`,
+        visual: (
+          <div className="vf-onb-mockup">
+            <div className="vf-onb-row">
+              <div className="vf-onb-streak">
+                <Flame size={15} /> 5 dní
+                <span className="vf-onb-badge">1</span>
+              </div>
+            </div>
+            <div className="vf-onb-battery-wrap">
+              <div className="vf-onb-battery">
+                <div className="vf-onb-battery-fill" />
+              </div>
+              <span className="vf-onb-badge">2</span>
+            </div>
+            <div className="vf-onb-legend">
+              <div><span className="vf-onb-badge inline">1</span> Počet dní v řadě</div>
+              <div><span className="vf-onb-badge inline">2</span> Kolik ses dnes učil(a)</div>
+            </div>
+          </div>
+        ),
       },
       {
-        icon: <BarChart size={44} />,
         title: "Prozkoumej appku",
-        text: "Dole najdeš Seznam všech slovíček, Statistiku pokroku, Balíčky pro hromadné přidávání a Zálohu dat. Kdykoliv se ztratíš, otazník na Domů tě zavede do podrobné nápovědy.",
+        text: "Najdeš tu seznam všech slovíček, statistiky svého pokroku, balíčky pro hromadné přidávání i zálohu dat. Kdykoliv si nebudeš vědět rady, otazník na Domů tě zavede k podrobné nápovědě.",
+        visual: (
+          <div className="vf-onb-mockup">
+            <div className="vf-onb-navbar">
+              <div className="vf-onb-navitem active"><HomeIcon size={16} /><span>Domů</span></div>
+              <div className="vf-onb-navitem"><BookOpen size={16} /><span>Seznam</span></div>
+              <div className="vf-onb-navitem"><BarChart size={16} /><span>Statistika</span></div>
+              <div className="vf-onb-navitem"><Package size={16} /><span>Balíčky</span></div>
+              <div className="vf-onb-navitem"><Download size={16} /><span>Záloha</span></div>
+            </div>
+            <div className="vf-onb-legend" style={{ marginTop: 10 }}>
+              <div>👆 Tahle lišta je vždycky dole — appka je jen jedno klepnutí od sebe</div>
+            </div>
+          </div>
+        ),
       },
     ];
     const slide = slides[onboardingStep];
@@ -2224,7 +2427,7 @@ function VocabApp() {
       <div className="vf-root">
         <style>{styles}</style>
         <div className="vf-onboarding">
-          <div className="vf-onboarding-icon">{slide.icon}</div>
+          {slide.visual ? slide.visual : <div className="vf-onboarding-icon">{slide.icon}</div>}
           <div className="vf-onboarding-title">{slide.title}</div>
           <p className="vf-onboarding-text">{slide.text}</p>
           <div className="vf-onboarding-dots">
