@@ -74,7 +74,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.46 · 2026-09-20";
+const APP_VERSION = "v2.47 · 2026-09-20";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -1956,6 +1956,13 @@ function VocabApp() {
     }
     .vf-onboarding-dot.active { background: var(--primary); width: 22px; border-radius: 4px; }
     .vf-onboarding .vf-btn { max-width: 280px; }
+    .vf-onboarding-nav-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 280px;
+    }
+    .vf-onboarding-nav-row .vf-btn { flex: 1; max-width: none; }
     .vf-onboarding-skip {
       background: none;
       border: none;
@@ -2435,9 +2442,16 @@ function VocabApp() {
               <span key={i} className={`vf-onboarding-dot${i === onboardingStep ? " active" : ""}`} />
             ))}
           </div>
-          <button className="vf-btn" onClick={() => (isLast ? completeOnboarding() : setOnboardingStep((s) => s + 1))}>
-            {isLast ? "Začít" : "Další"}
-          </button>
+          <div className="vf-onboarding-nav-row">
+            {onboardingStep > 0 && (
+              <button className="vf-btn secondary" style={{ marginBottom: 0 }} onClick={() => setOnboardingStep((s) => s - 1)}>
+                Zpět
+              </button>
+            )}
+            <button className="vf-btn" style={{ marginBottom: 0 }} onClick={() => (isLast ? completeOnboarding() : setOnboardingStep((s) => s + 1))}>
+              {isLast ? "Začít" : "Další"}
+            </button>
+          </div>
           {!isLast && (
             <button className="vf-onboarding-skip" onClick={completeOnboarding}>
               Přeskočit
