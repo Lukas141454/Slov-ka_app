@@ -74,7 +74,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.58 · 2026-09-24";
+const APP_VERSION = "v2.59 · 2026-09-24";
 // Short "what's new" notes shown once per version, in a small dismissible
 // dialog when the app detects it was just updated. Only the CURRENT
 // version's entry is ever shown — this isn't a full historical changelog,
@@ -84,6 +84,9 @@ const CHANGELOG = {
     "Nová obrazovka „O appce“ s tipy, jak appku ideálně používat",
     "Appka teď krátce ukáže novinky po každé aktualizaci — jako tohle okénko",
     "Připravené (zatím neaktivní) místo pro nahlášení chyb a návrhů",
+  ],
+  "v2.59 · 2026-09-24": [
+    "Opravené zpomalení při odpovídání během opakování (Znám/Skoro/Neznám, přeskočení úrovně)",
   ],
 };
 const STORAGE_KEY = "vocab-cards";
@@ -285,11 +288,17 @@ function VocabApp() {
   const [loaded, setLoaded] = useState(false);
   const [packs, setPacks] = useState([]);
 
-  // Duplicate-detection is O(n²) (compares every card against every other),
-  // so it must only re-run when the card list itself changes — not on every
-  // render (e.g. every keystroke while editing a word on the Duplicates
-  // screen), or typing there gets visibly laggy.
-  const duplicatesResult = useMemo(() => findDuplicates(cards || []), [cards]);
+  // Duplicate-detection is O(n²) (compares every card against every other) —
+  // expensive enough that it must never run just because `cards` changed for
+  // an unrelated reason (like answering a card during review, which also
+  // updates `cards`). It's only ever displayed on the List/Duplicates
+  // screens, so it only actually computes there; everywhere else this stays
+  // a cheap empty result instead of silently costing time on every answer.
+  const EMPTY_DUPLICATES = { enGroups: [], czGroups: [], phrasePairs: [] };
+  const duplicatesResult = useMemo(() => {
+    if (screen !== "duplicates" && screen !== "list") return EMPTY_DUPLICATES;
+    return findDuplicates(cards || []);
+  }, [cards, screen]);
 
   const [rawText, setRawText] = useState("");
   const [draftCards, setDraftCards] = useState([]);
