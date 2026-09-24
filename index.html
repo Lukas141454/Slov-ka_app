@@ -74,7 +74,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.51 · 2026-09-23";
+const APP_VERSION = "v2.54 · 2026-09-24";
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
 const BACKUP_KEY = "vocab-last-backup";
@@ -2152,6 +2152,30 @@ function VocabApp() {
       flex: 1;
     }
     .vf-onb-navitem.active { color: var(--primary-dark); }
+    .vf-onb-search-mock {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--ink-soft);
+      background: var(--paper2);
+      margin-bottom: 10px;
+    }
+    .vf-onb-dup-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: #fdf3df;
+      box-shadow: 0 4px 0 #e8cf9c;
+      color: #96702a;
+      border-radius: 14px;
+      padding: 11px;
+      font-size: 13px;
+      font-weight: 700;
+    }
     .vf-update-banner {
       display: flex;
       align-items: center;
@@ -2418,7 +2442,7 @@ function VocabApp() {
       {
         icon: <HomeIcon size={44} />,
         title: "Vítej v Učílkách!",
-        text: "Osobní appka na učení slovíček pomocí chytrého opakování. Slovíčka, která už dobře umíš, se budou objevovat méně často. Ta, která ti dělají potíže, naopak častěji.",
+        text: "Osobní appka na učení slovíček pomocí chytrého opakování. Slovíčka, která už dobře umíš, se budou objevovat méně často. Ta, která ti dělají potíže, naopak častěji. Slovní zásoba vychází ze seznamu Oxford 3000.",
       },
       {
         title: "Jak funguje kartička",
@@ -2481,6 +2505,18 @@ function VocabApp() {
             </div>
             <div className="vf-onb-legend" style={{ marginTop: 10 }}>
               <div>👆 Tahle lišta je vždycky dole — appka je jen jedno klepnutí od sebe</div>
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: "Appka hlídá duplicity",
+        text: "Přidal jsi omylem stejné slovo dvakrát? Appka to sama pozná. V Seznamu se pod vyhledáváním objeví tlačítko 'Najít duplicity' — odtud si je rovnou v appce pohodlně opravíš nebo smažeš.",
+        visual: (
+          <div className="vf-onb-mockup">
+            <div className="vf-onb-search-mock">Hledat slovíčko…</div>
+            <div className="vf-onb-dup-btn">
+              <AlertTriangle size={14} /> Najít duplicity (3)
             </div>
           </div>
         ),
@@ -2660,16 +2696,32 @@ function VocabApp() {
                   <div className="vf-sub" style={{ margin: "18px 0 10px" }}>Stejné anglické slovo</div>
                   {enGroups.map((group, i) => (
                     <div className="vf-problem-card" key={`en-${i}`}>
-                      {group.map((c) => (
-                        <div className="vf-list-item" key={c.id}>
-                          <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
-                          <div className="vf-list-actions">
-                            <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
-                              <Trash2 size={15} />
-                            </button>
+                      {group.map((c) =>
+                        editingId === c.id ? (
+                          <div className="vf-review-edit" key={c.id} style={{ margin: "0 0 10px" }}>
+                            <label className="vf-review-edit-label">Anglicky</label>
+                            <input className="vf-review-edit-input" value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
+                            <label className="vf-review-edit-label">Česky</label>
+                            <input className="vf-review-edit-input" value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" style={{ marginBottom: 12 }} />
+                            <div className="vf-review-edit-actions">
+                              <button className="vf-btn secondary" onClick={cancelEdit}>Zrušit</button>
+                              <button className="vf-btn" onClick={() => saveEdit(c.id)}>Uložit</button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ) : (
+                          <div className="vf-list-item" key={c.id}>
+                            <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
+                            <div className="vf-list-actions">
+                              <button className="vf-icon-btn" onClick={() => startEdit(c)}>
+                                <Pencil size={15} />
+                              </button>
+                              <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      )}
                     </div>
                   ))}
                 </>
@@ -2680,16 +2732,32 @@ function VocabApp() {
                   <div className="vf-sub" style={{ margin: "18px 0 10px" }}>Stejný český překlad</div>
                   {czGroups.map((group, i) => (
                     <div className="vf-problem-card" key={`cz-${i}`}>
-                      {group.map((c) => (
-                        <div className="vf-list-item" key={c.id}>
-                          <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
-                          <div className="vf-list-actions">
-                            <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
-                              <Trash2 size={15} />
-                            </button>
+                      {group.map((c) =>
+                        editingId === c.id ? (
+                          <div className="vf-review-edit" key={c.id} style={{ margin: "0 0 10px" }}>
+                            <label className="vf-review-edit-label">Anglicky</label>
+                            <input className="vf-review-edit-input" value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
+                            <label className="vf-review-edit-label">Česky</label>
+                            <input className="vf-review-edit-input" value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" style={{ marginBottom: 12 }} />
+                            <div className="vf-review-edit-actions">
+                              <button className="vf-btn secondary" onClick={cancelEdit}>Zrušit</button>
+                              <button className="vf-btn" onClick={() => saveEdit(c.id)}>Uložit</button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ) : (
+                          <div className="vf-list-item" key={c.id}>
+                            <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
+                            <div className="vf-list-actions">
+                              <button className="vf-icon-btn" onClick={() => startEdit(c)}>
+                                <Pencil size={15} />
+                              </button>
+                              <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      )}
                     </div>
                   ))}
                 </>
@@ -2703,16 +2771,32 @@ function VocabApp() {
                   </p>
                   {phrasePairs.map(([a, b], i) => (
                     <div className="vf-problem-card" key={`ph-${i}`}>
-                      {[a, b].map((c) => (
-                        <div className="vf-list-item" key={c.id}>
-                          <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
-                          <div className="vf-list-actions">
-                            <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
-                              <Trash2 size={15} />
-                            </button>
+                      {[a, b].map((c) =>
+                        editingId === c.id ? (
+                          <div className="vf-review-edit" key={c.id} style={{ margin: "0 0 10px" }}>
+                            <label className="vf-review-edit-label">Anglicky</label>
+                            <input className="vf-review-edit-input" value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
+                            <label className="vf-review-edit-label">Česky</label>
+                            <input className="vf-review-edit-input" value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" style={{ marginBottom: 12 }} />
+                            <div className="vf-review-edit-actions">
+                              <button className="vf-btn secondary" onClick={cancelEdit}>Zrušit</button>
+                              <button className="vf-btn" onClick={() => saveEdit(c.id)}>Uložit</button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ) : (
+                          <div className="vf-list-item" key={c.id}>
+                            <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
+                            <div className="vf-list-actions">
+                              <button className="vf-icon-btn" onClick={() => startEdit(c)}>
+                                <Pencil size={15} />
+                              </button>
+                              <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      )}
                     </div>
                   ))}
                 </>
