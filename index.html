@@ -74,7 +74,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.60 · 2026-10-02";
+const APP_VERSION = "v2.62 · 2026-10-05";
 // Milestones for the "naučená slovíčka" badge wall — thresholds on how many
 // words have reached Level 5 (level5Log.length), each with a short Czech
 // name so the badge reads as an achievement, not just a number.
@@ -101,10 +101,12 @@ const CHANGELOG = {
   "v2.59 · 2026-09-24": [
     "Opravené zpomalení při odpovídání během opakování (Znám/Skoro/Neznám, přeskočení úrovně)",
   ],
-  "v2.60 · 2026-10-02": [
-    "Nová kalendářní mapka učení ve Statistikách — vidíš posledních 14 dní na první pohled",
-    "Odznaky za naučená slovíčka (10, 25, 50, 100…) ve Statistikách",
-    "V Seznamu jde teď filtrovat jen problémová/nová slovíčka a hromadně je vybrat — přesunout do úrovně, smazat nebo exportovat do souboru",
+  "v2.61 · 2026-10-05": [
+    "Statistiky: kalendářní mapka posledních 14 dní a odznaky za naučená slovíčka",
+    "Seznam se otevírá rychleji — zrychlená kontrola duplicit",
+  ],
+  "v2.62 · 2026-10-05": [
+    "Kalendářní mapka teď ukazuje skutečné dny učení (zaznamenává se od teď, dřívější dny jsou šedé)",
   ],
 };
 const STORAGE_KEY = "vocab-cards";
@@ -117,6 +119,7 @@ const ONBOARDING_KEY = "vocab-onboarding-seen";
 const LAST_SEEN_VERSION_KEY = "vocab-last-seen-version";
 const STREAK_KEY = "vocab-streak";
 const LEVEL5_LOG_KEY = "vocab-level5-log";
+const ACTIVITY_DAYS_KEY = "vocab-activity-days";
 
 // Formats a Date using its LOCAL calendar date, not UTC — using
 // toISOString() here would silently shift the date backward by a day for
@@ -162,21 +165,6 @@ function formatMonthLabel(yyyymm) {
 }
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
-// Days on which at least one card was reviewed, in either direction —
-// used for the activity calendar. Built from each card's per-direction
-// lastReviewed date rather than a separate log, since that's the data
-// the app already keeps.
-function getActivityDateSet(cards) {
-  const set = new Set();
-  (cards || []).forEach((c) => {
-    ["en-cz", "cz-en"].forEach((dir) => {
-      const lr = c.progress && c.progress[dir] && c.progress[dir].lastReviewed;
-      if (lr) set.add(lr);
-    });
-  });
-  return set;
 }
 
 // Last `n` days as local date strings, oldest first, ending today.
@@ -243,18 +231,18 @@ function findDuplicates(cards) {
   const czGroups = Object.values(czGroupMap).filter((g) => g.length > 1);
 
   const phrasePairs = [];
+  // Precompute once per card: normalized text padded with spaces, so a
+  // whole-word match is a cheap substring test instead of a RegExp per pair.
+  const keys = list.map((c) => normalizeSearch(c.en.trim()));
+  const padded = keys.map((k) => " " + k.replace(/[^a-z0-9]+/g, " ").trim() + " ");
   for (let i = 0; i < list.length; i++) {
     for (let j = i + 1; j < list.length; j++) {
-      const a = normalizeSearch(list[i].en.trim());
-      const b = normalizeSearch(list[j].en.trim());
-      if (a === b) continue; // already covered by enGroups
-      const shorter = a.length <= b.length ? a : b;
-      const longer = a.length <= b.length ? b : a;
-      if (!shorter) continue;
-      const re = new RegExp(`\\b${escapeRegExp(shorter)}\\b`);
-      if (re.test(longer)) {
-        phrasePairs.push([list[i], list[j]]);
-      }
+      if (keys[i] === keys[j]) continue; // already covered by enGroups
+      const iShorter = padded[i].length <= padded[j].length;
+      const shorter = iShorter ? padded[i] : padded[j];
+      const longer = iShorter ? padded[j] : padded[i];
+      if (shorter.length <= 2) continue;
+      if (longer.includes(shorter)) phrasePairs.push([list[i], list[j]]);
     }
   }
   return { enGroups, czGroups, phrasePairs };
@@ -422,6 +410,18 @@ function VocabApp() {
     streakCreditedForDate: null,
   });
   const [level5Log, setLevel5Log] = useState([]);
+  // Dates (YYYY-MM-DD) on which at least one answer was given — feeds the
+  // 14-day activity calendar. Recorded from the moment this was added.
+  const [activityDays, setActivityDays] = useState([]);
+  function markActivityToday() {
+    const today = todayStr();
+    setActivityDays((prev) => {
+      if (prev.includes(today)) return prev;
+      const next = [...prev, today];
+      window.storage.set(ACTIVITY_DAYS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }
   const [autoSpeakEnabled, setAutoSpeakEnabled] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -562,6 +562,10 @@ function VocabApp() {
       try {
         const st = await window.storage.get(STREAK_KEY);
         if (st) setStreakData(JSON.parse(st.value));
+      } catch {}
+      try {
+        const ad = await window.storage.get(ACTIVITY_DAYS_KEY);
+        if (ad) setActivityDays(JSON.parse(ad.value));
       } catch {}
       try {
         const lv = await window.storage.get(LEVEL5_LOG_KEY);
@@ -825,6 +829,7 @@ function VocabApp() {
       qIndexAtAnswer: qIndex,
     });
 
+    markActivityToday();
     const justReachedLevel5 = logLevel5IfNeeded(card, newLevel);
     const updated = cards.map((c) => {
       if (c.id !== card.id) return c;
@@ -907,6 +912,7 @@ function VocabApp() {
       // A move up, or only a 1-level correction down, doesn't count.
       const levelDrop = currentLevel - targetLevel;
       const newDontCount = levelDrop >= 2 ? (prog.dontCount || 0) + 2 : prog.dontCount || 0;
+      markActivityToday();
       const justReachedLevel5 = logLevel5IfNeeded(card, targetLevel);
       const updated = cards.map((c) => {
         if (c.id !== card.id) return c;
@@ -1142,6 +1148,7 @@ function VocabApp() {
       cards,
       packs,
       level5Log,
+      activityDays,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1220,6 +1227,9 @@ function VocabApp() {
         if (Array.isArray(data.level5Log)) {
           setPendingImportLevel5Log(data.level5Log);
         }
+        if (Array.isArray(data.activityDays)) {
+          setPendingImportActivityDays(data.activityDays.filter((d) => typeof d === "string"));
+        }
       } catch (err) {
         setImportError("Soubor se nepodařilo přečíst — není to platný JSON export.");
       }
@@ -1230,6 +1240,7 @@ function VocabApp() {
 
   const [pendingImportPacks, setPendingImportPacks] = useState(null);
   const [pendingImportLevel5Log, setPendingImportLevel5Log] = useState(null);
+  const [pendingImportActivityDays, setPendingImportActivityDays] = useState(null);
 
   function saveLevel5Log(next) {
     setLevel5Log(next);
@@ -1238,6 +1249,11 @@ function VocabApp() {
 
   function confirmImport(mode) {
     if (!pendingImport) return;
+    if (pendingImportActivityDays) {
+      const merged = mode === "replace" ? pendingImportActivityDays : Array.from(new Set([...(activityDays || []), ...pendingImportActivityDays]));
+      setActivityDays(merged);
+      window.storage.set(ACTIVITY_DAYS_KEY, JSON.stringify(merged)).catch(() => {});
+    }
     if (mode === "replace") {
       saveCards(pendingImport);
       if (pendingImportPacks) savePacks(pendingImportPacks);
@@ -1261,11 +1277,13 @@ function VocabApp() {
     setPendingImport(null);
     setPendingImportPacks(null);
     setPendingImportLevel5Log(null);
+    setPendingImportActivityDays(null);
   }
   function cancelImport() {
     setPendingImport(null);
     setPendingImportPacks(null);
     setPendingImportLevel5Log(null);
+    setPendingImportActivityDays(null);
     setImportError("");
   }
 
@@ -1279,68 +1297,6 @@ function VocabApp() {
     setExpandedLevels((prev) => ({ ...prev, [lvl]: !prev[lvl] }));
   }
   const [levelDeleteConfirm, setLevelDeleteConfirm] = useState(null);
-  const [listFilter, setListFilter] = useState("all"); // "all" | "problem" | "new"
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
-  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
-
-  function toggleSelectMode() {
-    setSelectMode((prev) => !prev);
-    setSelectedIds(new Set());
-    setBulkDeleteConfirm(false);
-    setBulkMoveOpen(false);
-  }
-  function toggleCardSelected(id) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-  function clearSelection() {
-    setSelectedIds(new Set());
-    setBulkDeleteConfirm(false);
-    setBulkMoveOpen(false);
-  }
-  function bulkDeleteSelected() {
-    saveCards(cards.filter((c) => !selectedIds.has(c.id)));
-    clearSelection();
-    setSelectMode(false);
-  }
-  function bulkMoveSelected(targetLevel, direction) {
-    const nextDue = addDays(todayStr(), INTERVALS[targetLevel]);
-    saveCards(
-      cards.map((c) =>
-        selectedIds.has(c.id)
-          ? withProgress(c, direction, { level: targetLevel, nextDue, lastReviewed: todayStr() })
-          : c
-      )
-    );
-    clearSelection();
-    setSelectMode(false);
-  }
-  function exportSelectedCards(selectedCards, label) {
-    const payload = {
-      app: "slovicka",
-      version: 3,
-      exportedAt: new Date().toISOString(),
-      settings,
-      cards: selectedCards,
-      packs: [],
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `slovicka-${(label || "vyber").replace(/\s+/g, "-")}-${todayStr()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
   function exportLevelBackup(levelCards, lvlLabel) {
     const payload = {
       app: "slovicka",
@@ -3497,14 +3453,7 @@ function VocabApp() {
             <div className="vf-title-row">
               <div className="vf-title">Učílky</div>
             </div>
-            <button
-              className="vf-icon-btn"
-              title={selectMode ? "Zrušit výběr" : "Vybrat slovíčka"}
-              onClick={toggleSelectMode}
-              style={selectMode ? { color: "var(--primary-dark)" } : undefined}
-            >
-              {selectMode ? <X size={20} /> : <BookOpen size={22} color="#1e3a5f" />}
-            </button>
+            <BookOpen size={22} color="#1e3a5f" />
           </div>
           <div className="vf-body">
             <div
@@ -3520,21 +3469,6 @@ function VocabApp() {
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Hledat slovíčko…"
             />
-            <div className="vf-filter-chips">
-              {[
-                { key: "all", label: "Vše" },
-                { key: "problem", label: "Problémová" },
-                { key: "new", label: "Nová" },
-              ].map((f) => (
-                <button
-                  key={f.key}
-                  className={`vf-filter-chip${listFilter === f.key ? " active" : ""}`}
-                  onClick={() => setListFilter(f.key)}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
             {(() => {
               const { enGroups, czGroups, phrasePairs } = duplicatesResult;
               const dupCount = enGroups.length + czGroups.length + phrasePairs.length;
@@ -3560,19 +3494,12 @@ function VocabApp() {
                 const lvl = getProgress(c, direction).level;
                 return lvl === null || lvl === undefined ? -1 : lvl;
               };
-              const matchesFilter = (c) => {
-                if (listFilter === "problem") return (getProgress(c, direction).dontCount || 0) >= 2;
-                if (listFilter === "new") return normalized(c) === -1;
-                return true;
-              };
-              const filterActive = listFilter !== "all";
 
               const groups = levelOrder.map((lvl) => ({
                 lvl,
                 allItems: cards.filter((c) => normalized(c) === lvl),
                 items: cards
                   .filter((c) => normalized(c) === lvl)
-                  .filter((c) => matchesFilter(c))
                   .filter(
                     (c) =>
                       !term ||
@@ -3583,185 +3510,85 @@ function VocabApp() {
               }));
 
               const totalMatching = groups.reduce((sum, g) => sum + g.items.length, 0);
-              if ((term || filterActive) && totalMatching === 0) {
+              if (term && totalMatching === 0) {
                 return <div className="vf-empty">Nic nenalezeno.</div>;
               }
 
-              const visibleCards = groups.flatMap((g) => g.items);
-              const allVisibleSelected =
-                selectMode && visibleCards.length > 0 && visibleCards.every((c) => selectedIds.has(c.id));
-
-              return (
-                <>
-                  {selectMode && (
-                    <div
-                      className="vf-select-toolbar"
-                      style={{ position: "static", marginBottom: 14 }}
-                    >
-                      <button
-                        className="vf-filter-chip"
-                        onClick={() =>
-                          setSelectedIds(
-                            allVisibleSelected ? new Set() : new Set(visibleCards.map((c) => c.id))
-                          )
-                        }
-                      >
-                        {allVisibleSelected ? "Zrušit vše" : "Vybrat vše zobrazené"}
-                      </button>
-                      <span style={{ fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>
-                        {selectedIds.size} vybráno
+              return groups.map((g) => {
+                const allInLevel = g.allItems.length;
+                if (allInLevel === 0) return null;
+                if (term && g.items.length === 0) return null;
+                const isExpanded = term ? true : !!expandedLevels[g.lvl];
+                return (
+                  <div key={g.lvl}>
+                    <div className="vf-level-header clickable" onClick={() => toggleLevel(g.lvl)}>
+                      <span className="name">{levelLabel(g.lvl)}</span>
+                      <span className="vf-level-header-right">
+                        <span className="count">{term ? `${g.items.length} / ${allInLevel}` : allInLevel}</span>
+                        {!term && (
+                          <button
+                            className="vf-icon-btn"
+                            title="Smazat celou úroveň"
+                            onClick={(e) => { e.stopPropagation(); setLevelDeleteConfirm(g.lvl); }}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                        <ChevronDown size={16} className={isExpanded ? "vf-chevron open" : "vf-chevron"} />
                       </span>
                     </div>
-                  )}
-                  {groups.map((g) => {
-                    const allInLevel = g.allItems.length;
-                    if (allInLevel === 0) return null;
-                    if ((term || filterActive) && g.items.length === 0) return null;
-                    const isExpanded = term || filterActive ? true : !!expandedLevels[g.lvl];
-                    return (
-                      <div key={g.lvl}>
-                        <div className="vf-level-header clickable" onClick={() => toggleLevel(g.lvl)}>
-                          <span className="name">{levelLabel(g.lvl)}</span>
-                          <span className="vf-level-header-right">
-                            <span className="count">{term || filterActive ? `${g.items.length} / ${allInLevel}` : allInLevel}</span>
-                            {!term && !filterActive && (
-                              <button
-                                className="vf-icon-btn"
-                                title="Smazat celou úroveň"
-                                onClick={(e) => { e.stopPropagation(); setLevelDeleteConfirm(g.lvl); }}
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            )}
-                            <ChevronDown size={16} className={isExpanded ? "vf-chevron open" : "vf-chevron"} />
-                          </span>
+                    {levelDeleteConfirm === g.lvl && (
+                      <div className="vf-delete-confirm" style={{ marginBottom: 12 }}>
+                        <p>
+                          Opravdu smazat celou úroveň <b>{levelLabel(g.lvl)}</b> — {allInLevel}{" "}
+                          {allInLevel === 1 ? "slovíčko" : allInLevel < 5 ? "slovíčka" : "slovíček"}?
+                          Tuto akci nejde vrátit.
+                        </p>
+                        <div className="vf-delete-confirm-actions" style={{ marginBottom: 10 }}>
+                          <button
+                            className="vf-btn secondary"
+                            onClick={() => exportLevelBackup(g.allItems, levelLabel(g.lvl))}
+                          >
+                            <Download size={15} /> Nejdřív zálohovat
+                          </button>
                         </div>
-                        {levelDeleteConfirm === g.lvl && (
-                          <div className="vf-delete-confirm" style={{ marginBottom: 12 }}>
-                            <p>
-                              Opravdu smazat celou úroveň <b>{levelLabel(g.lvl)}</b> — {allInLevel}{" "}
-                              {allInLevel === 1 ? "slovíčko" : allInLevel < 5 ? "slovíčka" : "slovíček"}?
-                              Tuto akci nejde vrátit.
-                            </p>
-                            <div className="vf-delete-confirm-actions" style={{ marginBottom: 10 }}>
-                              <button
-                                className="vf-btn secondary"
-                                onClick={() => exportLevelBackup(g.allItems, levelLabel(g.lvl))}
-                              >
-                                <Download size={15} /> Nejdřív zálohovat
-                              </button>
-                            </div>
-                            <div className="vf-delete-confirm-actions">
-                              <button className="vf-btn secondary" onClick={() => setLevelDeleteConfirm(null)}>Zrušit</button>
-                              <button className="vf-btn danger" onClick={() => confirmDeleteLevel(g.lvl, direction)}>Ano, smazat vše</button>
-                            </div>
-                          </div>
-                        )}
-                        {isExpanded && g.items.map((c) =>
-                          editingId === c.id ? (
-                            <div className="vf-review-edit" key={c.id} style={{ margin: "0 0 10px" }}>
-                              <label className="vf-review-edit-label">Anglicky</label>
-                              <input className="vf-review-edit-input" value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
-                              <label className="vf-review-edit-label">Česky</label>
-                              <input className="vf-review-edit-input" value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" style={{ marginBottom: 12 }} />
-                              <div className="vf-review-edit-actions">
-                                <button className="vf-btn secondary" onClick={cancelEdit}>Zrušit</button>
-                                <button className="vf-btn" onClick={() => saveEdit(c.id)}>Uložit</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div
-                              className="vf-list-item"
-                              key={c.id}
-                              onClick={selectMode ? () => toggleCardSelected(c.id) : undefined}
-                              style={selectMode ? { cursor: "pointer" } : undefined}
-                            >
-                              <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                                {selectMode && (
-                                  <input
-                                    type="checkbox"
-                                    className="vf-checkbox"
-                                    checked={selectedIds.has(c.id)}
-                                    onChange={() => toggleCardSelected(c.id)}
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                )}
-                                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  <span className="en">{c.en}</span> — <span className="cz">{c.cz}</span>
-                                </span>
-                              </span>
-                              {!selectMode && (
-                                <div className="vf-list-actions">
-                                  <button className="vf-icon-btn" onClick={() => startEdit(c)}>
-                                    <Pencil size={15} />
-                                  </button>
-                                  <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
-                                    <Trash2 size={15} />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )
-                        )}
+                        <div className="vf-delete-confirm-actions">
+                          <button className="vf-btn secondary" onClick={() => setLevelDeleteConfirm(null)}>Zrušit</button>
+                          <button className="vf-btn danger" onClick={() => confirmDeleteLevel(g.lvl, direction)}>Ano, smazat vše</button>
+                        </div>
                       </div>
-                    );
-                  })}
-                </>
-              );
+                    )}
+                    {isExpanded && g.items.map((c) =>
+                      editingId === c.id ? (
+                        <div className="vf-review-edit" key={c.id} style={{ margin: "0 0 10px" }}>
+                          <label className="vf-review-edit-label">Anglicky</label>
+                          <input className="vf-review-edit-input" value={editEn} onChange={(e) => setEditEn(e.target.value)} placeholder="english" />
+                          <label className="vf-review-edit-label">Česky</label>
+                          <input className="vf-review-edit-input" value={editCz} onChange={(e) => setEditCz(e.target.value)} placeholder="česky" style={{ marginBottom: 12 }} />
+                          <div className="vf-review-edit-actions">
+                            <button className="vf-btn secondary" onClick={cancelEdit}>Zrušit</button>
+                            <button className="vf-btn" onClick={() => saveEdit(c.id)}>Uložit</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="vf-list-item" key={c.id}>
+                          <span><span className="en">{c.en}</span> — <span className="cz">{c.cz}</span></span>
+                          <div className="vf-list-actions">
+                            <button className="vf-icon-btn" onClick={() => startEdit(c)}>
+                              <Pencil size={15} />
+                            </button>
+                            <button className="vf-icon-btn" onClick={() => deleteCard(c.id)}>
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                );
+              });
             })()}
           </div>
-          {selectMode && selectedIds.size > 0 && (
-            <div className="vf-select-toolbar">
-              {bulkMoveOpen ? (
-                <>
-                  <div className="vf-sub" style={{ marginBottom: 8 }}>Přesunout {selectedIds.size} do úrovně</div>
-                  <div className="vf-bulk-level-grid">
-                    {[-1, 0, 1, 2, 3, 4, 5, 6, 7].map((lvl) => (
-                      <button
-                        key={lvl}
-                        className="vf-filter-chip"
-                        onClick={() => bulkMoveSelected(Math.max(lvl, 0), settings.direction)}
-                      >
-                        {lvl === -1 ? "Nové" : `Level ${lvl + 1}`}
-                      </button>
-                    ))}
-                  </div>
-                  <button className="vf-btn secondary" style={{ marginTop: 10, marginBottom: 0 }} onClick={() => setBulkMoveOpen(false)}>
-                    Zpět
-                  </button>
-                </>
-              ) : bulkDeleteConfirm ? (
-                <>
-                  <p style={{ fontSize: 13, margin: "0 0 10px" }}>
-                    Opravdu smazat {selectedIds.size} vybraných slovíček? Tuto akci nejde vrátit.
-                  </p>
-                  <div className="vf-delete-confirm-actions">
-                    <button className="vf-btn secondary" onClick={() => setBulkDeleteConfirm(false)}>Zrušit</button>
-                    <button className="vf-btn danger" onClick={bulkDeleteSelected}>Ano, smazat</button>
-                  </div>
-                </>
-              ) : (
-                <div className="vf-select-toolbar-actions">
-                  <button className="vf-icon-btn" title="Přesunout do úrovně" onClick={() => setBulkMoveOpen(true)}>
-                    <ArrowLeftRight size={18} />
-                    <span>Přesunout</span>
-                  </button>
-                  <button
-                    className="vf-icon-btn"
-                    title="Exportovat vybrané"
-                    onClick={() => exportSelectedCards(cards.filter((c) => selectedIds.has(c.id)), `vyber-${selectedIds.size}`)}
-                  >
-                    <Download size={18} />
-                    <span>Export</span>
-                  </button>
-                  <button className="vf-icon-btn" title="Smazat vybrané" onClick={() => setBulkDeleteConfirm(true)}>
-                    <Trash2 size={18} />
-                    <span>Smazat</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
         </>
       )}
 
@@ -3894,11 +3721,14 @@ function VocabApp() {
               </div>
 
               {(() => {
-                const activeDays = getActivityDateSet(cards);
+                const activeDays = new Set(activityDays);
                 const days = lastNDays(14);
                 return (
                   <>
-                    <div className="vf-sub" style={{ margin: "22px 0 10px" }}>Posledních 14 dní</div>
+                    <div className="vf-sub" style={{ margin: "22px 0 4px" }}>Posledních 14 dní</div>
+                    <p style={{ fontSize: 11.5, color: "#4a6580", margin: "0 0 10px" }}>
+                      Zelený den = odpověděl jsi aspoň na jedno slovíčko. Zaznamenává se od v2.62, dřívější dny jsou šedé.
+                    </p>
                     <div className="vf-calendar-grid">
                       {days.map((d) => (
                         <div className="vf-calendar-cell" key={d}>
