@@ -35,6 +35,9 @@ window.storage = {
     localStorage.setItem(key, value);
     return { key, value };
   },
+  async list(prefix) {
+    return Object.keys(localStorage).filter((k) => k.startsWith(prefix));
+  },
 };
 
 // ---- minimal inline icon set (replacing lucide-react) ----
@@ -74,7 +77,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.62 · 2026-10-05";
+const APP_VERSION = "v2.66 · 2026-10-07";
 // Milestones for the "naučená slovíčka" badge wall — thresholds on how many
 // words have reached Level 5 (level5Log.length), each with a short Czech
 // name so the badge reads as an achievement, not just a number.
@@ -108,6 +111,18 @@ const CHANGELOG = {
   "v2.62 · 2026-10-05": [
     "Kalendářní mapka teď ukazuje skutečné dny učení (zaznamenává se od teď, dřívější dny jsou šedé)",
   ],
+  "v2.63 · 2026-10-07": [
+    "Interní příprava na budoucí účty: appka si teď u každého slovíčka pamatuje, odkud pochází (ručně přidané / z balíčku / import)",
+  ],
+  "v2.64 · 2026-10-07": [
+    "Interní příprava na synchronizaci: každé slovíčko si pamatuje čas poslední změny a data mají číslo verze formátu",
+  ],
+  "v2.65 · 2026-10-07": [
+    "Interní příprava na backend: appka si ukládá historii jednotlivých odpovědí (součást zálohy)",
+  ],
+  "v2.66 · 2026-10-07": [
+    "Interní příprava na další jazyky: slovíčka a balíčky si pamatují jazykový pár (zatím vždy česky–anglicky)",
+  ],
 };
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
@@ -120,6 +135,36 @@ const LAST_SEEN_VERSION_KEY = "vocab-last-seen-version";
 const STREAK_KEY = "vocab-streak";
 const LEVEL5_LOG_KEY = "vocab-level5-log";
 const ACTIVITY_DAYS_KEY = "vocab-activity-days";
+const SCHEMA_VERSION_KEY = "vocab-schema-version";
+// Version of the stored data format (cards, backups). Bump whenever the
+// shape of saved data changes, and add a migration where data is loaded.
+//  5 = cards carry `source`/`packId` and `updatedAt`
+//  6 = backups can include `reviewLog` (one compact string per answer)
+//  7 = cards and packs carry `pair` (language pair, e.g. "cs-en")
+const DATA_SCHEMA_VERSION = 7;
+// Language pair of a card/pack: "<native>-<learned>". The app only supports
+// Czech->English today, but every card and pack records its pair so more
+// pairs (pl-en, es-en…) can be added later without migrating user data.
+// The fields en/cz keep their names for now.
+const DEFAULT_PAIR = "cs-en";
+// Review log: one entry per answer, stored per month under
+// REVIEW_LOG_PREFIX + "YYYY-MM" so saving never rewrites the whole history.
+// Entry = [timestampMs, cardId, direction(0=en-cz,1=cz-en), result(k/a/d/s),
+// levelBefore, levelAfter]  (level -1 = new; result s = manual level change)
+const REVIEW_LOG_PREFIX = "vocab-review-log-";
+function reviewMonthKey(ts) {
+  return dateToLocalStr(new Date(ts)).slice(0, 7);
+}
+function encodeReviewEntry(e) {
+  return e.join(",");
+}
+function decodeReviewEntry(str) {
+  const p = String(str).split(",");
+  if (p.length !== 6) return null;
+  const t = Number(p[0]);
+  if (!Number.isFinite(t)) return null;
+  return [t, p[1], Number(p[2]), p[3], Number(p[4]), Number(p[5])];
+}
 
 // Formats a Date using its LOCAL calendar date, not UTC — using
 // toISOString() here would silently shift the date backward by a day for
@@ -311,7 +356,12 @@ function withProgress(card, direction, patch) {
 // Older cards were saved with a single flat level/nextDue/lastReviewed
 // shared by both directions. Migrate them into the new per-direction shape,
 // using the old values as the starting point for both directions.
+// Every card also records where it came from (`source`: "manual" | "pack" |
+// "import" | "legacy") and, for pack cards, which pack (`packId`). "legacy"
+// = created before origin tracking existed, so its origin is unknown.
 function migrateCard(c) {
+  if (!c.source) c = { ...c, source: "legacy" };
+  if (!c.pair) c = { ...c, pair: DEFAULT_PAIR };
   if (c.progress) return c;
   const legacy = { level: c.level ?? null, nextDue: c.nextDue ?? null, lastReviewed: c.lastReviewed ?? null };
   return {
@@ -413,6 +463,77 @@ function VocabApp() {
   // Dates (YYYY-MM-DD) on which at least one answer was given — feeds the
   // 14-day activity calendar. Recorded from the moment this was added.
   const [activityDays, setActivityDays] = useState([]);
+  // Per-month cache of the review log; only months touched this session are
+  // loaded. Writes are debounced and flushed when the page is hidden/closed.
+  const reviewLogRef = useRef({});
+  const reviewDirtyRef = useRef(new Set());
+  const reviewFlushTimer = useRef(null);
+  function flushReviewLog() {
+    if (reviewFlushTimer.current) {
+      clearTimeout(reviewFlushTimer.current);
+      reviewFlushTimer.current = null;
+    }
+    reviewDirtyRef.current.forEach((month) => {
+      const arr = reviewLogRef.current[month] || [];
+      window.storage.set(REVIEW_LOG_PREFIX + month, JSON.stringify(arr)).catch(() => {});
+    });
+    reviewDirtyRef.current = new Set();
+  }
+  function scheduleReviewFlush(month) {
+    reviewDirtyRef.current.add(month);
+    if (!reviewFlushTimer.current) {
+      reviewFlushTimer.current = setTimeout(flushReviewLog, 1500);
+    }
+  }
+  function appendReviewLog(cardId, direction, result, levelBefore, levelAfter) {
+    const t = Date.now();
+    const month = reviewMonthKey(t);
+    if (!reviewLogRef.current[month]) reviewLogRef.current[month] = [];
+    reviewLogRef.current[month].push([t, cardId, direction === "cz-en" ? 1 : 0, result, levelBefore, levelAfter]);
+    scheduleReviewFlush(month);
+  }
+  // Undo removes the entry it reverts (only if it is the latest one).
+  function popReviewLog(cardId) {
+    const month = reviewMonthKey(Date.now());
+    const arr = reviewLogRef.current[month];
+    if (arr && arr.length > 0 && arr[arr.length - 1][1] === cardId) {
+      arr.pop();
+      scheduleReviewFlush(month);
+    }
+  }
+  useEffect(() => {
+    // load the current month first so new answers append to existing ones
+    (async () => {
+      const month = reviewMonthKey(Date.now());
+      try {
+        const r = await window.storage.get(REVIEW_LOG_PREFIX + month);
+        const stored = r ? JSON.parse(r.value) : [];
+        const fresh = reviewLogRef.current[month] || [];
+        reviewLogRef.current[month] = [...stored, ...fresh];
+      } catch {}
+    })();
+    const onHide = () => flushReviewLog();
+    window.addEventListener("pagehide", onHide);
+    const onVis = () => { if (document.visibilityState === "hidden") flushReviewLog(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  async function readAllReviewLog() {
+    flushReviewLog();
+    const keys = await window.storage.list(REVIEW_LOG_PREFIX);
+    const all = [];
+    for (const k of keys.sort()) {
+      try {
+        const r = await window.storage.get(k);
+        if (r) all.push(...JSON.parse(r.value));
+      } catch {}
+    }
+    return all;
+  }
   function markActivityToday() {
     const today = todayStr();
     setActivityDays((prev) => {
@@ -547,10 +668,21 @@ function VocabApp() {
     (async () => {
       try {
         const c = await window.storage.get(STORAGE_KEY);
-        setCards(c ? JSON.parse(c.value).map(migrateCard) : []);
+        const loaded = c ? JSON.parse(c.value).map(migrateCard) : [];
+        cardsRef.current = loaded;
+        setCards(loaded);
       } catch {
+        cardsRef.current = [];
         setCards([]);
       }
+      try {
+        // Data written by a newer app version is never silently downgraded:
+        // we only stamp the version when it's not already higher.
+        const sv = await window.storage.get(SCHEMA_VERSION_KEY);
+        if (!sv || parseInt(sv.value, 10) < DATA_SCHEMA_VERSION) {
+          window.storage.set(SCHEMA_VERSION_KEY, String(DATA_SCHEMA_VERSION)).catch(() => {});
+        }
+      } catch {}
       try {
         const s = await window.storage.get(SETTINGS_KEY);
         if (s) setSettings((prev) => ({ ...prev, ...JSON.parse(s.value) }));
@@ -595,7 +727,7 @@ function VocabApp() {
       } catch {}
       try {
         const p = await window.storage.get(PACKS_KEY);
-        setPacks(p ? JSON.parse(p.value) : []);
+        setPacks(p ? JSON.parse(p.value).map((x) => ({ ...x, pair: x.pair || DEFAULT_PAIR })) : []);
       } catch {
         setPacks([]);
       }
@@ -610,7 +742,16 @@ function VocabApp() {
     })();
   }, []);
 
-  const saveCards = useCallback(async (next) => {
+  // Remembers the last saved list so saveCards can tell which cards actually
+  // changed: every edit creates a new object, untouched cards keep the same
+  // reference — so changed/new cards get a fresh `updatedAt` automatically,
+  // whichever code path made the change.
+  const cardsRef = useRef(null);
+  const saveCards = useCallback(async (nextRaw) => {
+    const prevById = new Map((cardsRef.current || []).map((c) => [c.id, c]));
+    const nowIso = new Date().toISOString();
+    const next = nextRaw.map((c) => (prevById.get(c.id) === c ? c : { ...c, updatedAt: nowIso }));
+    cardsRef.current = next;
     setCards(next);
     try {
       await window.storage.set(STORAGE_KEY, JSON.stringify(next));
@@ -830,6 +971,7 @@ function VocabApp() {
     });
 
     markActivityToday();
+    appendReviewLog(card.id, direction, result === "know" ? "k" : result === "almost" ? "a" : "d", level, newLevel);
     const justReachedLevel5 = logLevel5IfNeeded(card, newLevel);
     const updated = cards.map((c) => {
       if (c.id !== card.id) return c;
@@ -857,6 +999,7 @@ function VocabApp() {
   function undoLastAnswer() {
     if (!lastAction) return;
     const { cardId, direction, prevLevel, prevNextDue, prevLastReviewed, prevDontCount, result, qIndexAtAnswer } = lastAction;
+    popReviewLog(cardId);
     const updated = cards.map((c) =>
       c.id === cardId
         ? withProgress(c, direction, {
@@ -913,6 +1056,7 @@ function VocabApp() {
       const levelDrop = currentLevel - targetLevel;
       const newDontCount = levelDrop >= 2 ? (prog.dontCount || 0) + 2 : prog.dontCount || 0;
       markActivityToday();
+      appendReviewLog(card.id, direction, "s", currentLevel, targetLevel);
       const justReachedLevel5 = logLevel5IfNeeded(card, targetLevel);
       const updated = cards.map((c) => {
         if (c.id !== card.id) return c;
@@ -1042,6 +1186,7 @@ function VocabApp() {
         name,
         createdAt: todayStr(),
         activatedAt: null,
+        pair: DEFAULT_PAIR,
         words: clean.map((c) => ({ en: c.en.trim(), cz: c.cz.trim() })),
       };
       savePacks([...(packs || []), newPack]);
@@ -1064,6 +1209,9 @@ function VocabApp() {
         en: w.en,
         cz: w.cz,
         createdAt: todayStr(),
+        source: "pack",
+        packId: pack.id,
+        pair: pack.pair || DEFAULT_PAIR,
         progress: {
           "en-cz": { level: null, nextDue: null, lastReviewed: null },
           "cz-en": { level: null, nextDue: null, lastReviewed: null },
@@ -1125,6 +1273,8 @@ function VocabApp() {
       en,
       cz,
       createdAt: todayStr(),
+      source: "manual",
+      pair: DEFAULT_PAIR,
       progress: {
         "en-cz": { level: null, nextDue: null, lastReviewed: null },
         "cz-en": { level: null, nextDue: null, lastReviewed: null },
@@ -1139,16 +1289,18 @@ function VocabApp() {
     setTimeout(() => setQuickSavedMsg(""), 2500);
   }
 
-  function exportCards() {
+  async function exportCards() {
+    const reviewLog = (await readAllReviewLog()).map(encodeReviewEntry);
     const payload = {
       app: "slovicka",
-      version: 4,
+      version: DATA_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       settings,
       cards,
       packs,
       level5Log,
       activityDays,
+      reviewLog,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1188,6 +1340,10 @@ function VocabApp() {
     reader.onload = (ev) => {
       try {
         const data = JSON.parse(ev.target.result);
+        if (!Array.isArray(data) && typeof data.version === "number" && data.version > DATA_SCHEMA_VERSION) {
+          setImportError("Záloha je z novější verze appky — nejdřív appku aktualizuj (zavři ji a znovu otevři).");
+          return;
+        }
         const importedCards = Array.isArray(data) ? data : data.cards;
         if (!Array.isArray(importedCards)) {
           setImportError("Soubor nemá platný formát zálohy.");
@@ -1204,6 +1360,10 @@ function VocabApp() {
               ...(c.note ? { note: c.note } : {}),
               ...(c.image ? { image: c.image } : {}),
               ...(c.reachedLevel5 ? { reachedLevel5: true } : {}),
+              source: c.source || "import",
+              pair: c.pair || DEFAULT_PAIR,
+              ...(c.updatedAt ? { updatedAt: c.updatedAt } : {}),
+              ...(c.packId ? { packId: c.packId } : {}),
             };
             if (c.progress && c.progress["en-cz"] && c.progress["cz-en"]) {
               return { ...base, progress: c.progress };
@@ -1222,10 +1382,13 @@ function VocabApp() {
         }
         setPendingImport(clean);
         if (Array.isArray(data.packs)) {
-          setPendingImportPacks(data.packs);
+          setPendingImportPacks(data.packs.map((p) => ({ ...p, pair: p.pair || DEFAULT_PAIR })));
         }
         if (Array.isArray(data.level5Log)) {
           setPendingImportLevel5Log(data.level5Log);
+        }
+        if (Array.isArray(data.reviewLog)) {
+          setPendingImportReviewLog(data.reviewLog.map(decodeReviewEntry).filter(Boolean));
         }
         if (Array.isArray(data.activityDays)) {
           setPendingImportActivityDays(data.activityDays.filter((d) => typeof d === "string"));
@@ -1241,14 +1404,41 @@ function VocabApp() {
   const [pendingImportPacks, setPendingImportPacks] = useState(null);
   const [pendingImportLevel5Log, setPendingImportLevel5Log] = useState(null);
   const [pendingImportActivityDays, setPendingImportActivityDays] = useState(null);
+  const [pendingImportReviewLog, setPendingImportReviewLog] = useState(null);
 
   function saveLevel5Log(next) {
     setLevel5Log(next);
     window.storage.set(LEVEL5_LOG_KEY, JSON.stringify(next)).catch(() => {});
   }
 
+  async function importReviewLog(entries, mode) {
+    flushReviewLog();
+    const incoming = {};
+    entries.forEach((e) => {
+      const m = reviewMonthKey(e[0]);
+      (incoming[m] = incoming[m] || []).push(e);
+    });
+    const existingKeys = await window.storage.list(REVIEW_LOG_PREFIX);
+    const months = new Set([...Object.keys(incoming), ...existingKeys.map((k) => k.slice(REVIEW_LOG_PREFIX.length))]);
+    for (const m of months) {
+      let current = [];
+      if (mode !== "replace") {
+        try {
+          const r = await window.storage.get(REVIEW_LOG_PREFIX + m);
+          current = r ? JSON.parse(r.value) : [];
+        } catch {}
+      }
+      const seen = new Set(current.map((e) => `${e[0]}|${e[1]}|${e[2]}`));
+      const add = (incoming[m] || []).filter((e) => !seen.has(`${e[0]}|${e[1]}|${e[2]}`));
+      const merged = [...current, ...add].sort((a, b) => a[0] - b[0]);
+      reviewLogRef.current[m] = merged;
+      await window.storage.set(REVIEW_LOG_PREFIX + m, JSON.stringify(merged)).catch(() => {});
+    }
+  }
+
   function confirmImport(mode) {
     if (!pendingImport) return;
+    if (pendingImportReviewLog) importReviewLog(pendingImportReviewLog, mode);
     if (pendingImportActivityDays) {
       const merged = mode === "replace" ? pendingImportActivityDays : Array.from(new Set([...(activityDays || []), ...pendingImportActivityDays]));
       setActivityDays(merged);
@@ -1278,12 +1468,14 @@ function VocabApp() {
     setPendingImportPacks(null);
     setPendingImportLevel5Log(null);
     setPendingImportActivityDays(null);
+    setPendingImportReviewLog(null);
   }
   function cancelImport() {
     setPendingImport(null);
     setPendingImportPacks(null);
     setPendingImportLevel5Log(null);
     setPendingImportActivityDays(null);
+    setPendingImportReviewLog(null);
     setImportError("");
   }
 
@@ -1300,7 +1492,7 @@ function VocabApp() {
   function exportLevelBackup(levelCards, lvlLabel) {
     const payload = {
       app: "slovicka",
-      version: 3,
+      version: DATA_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       settings,
       cards: levelCards,
