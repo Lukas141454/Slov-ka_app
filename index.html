@@ -77,7 +77,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.71 · 2026-11-01";
+const APP_VERSION = "v2.72 · 2026-11-02";
 // Milestones for the "naučená slovíčka" badge wall — thresholds on how many
 // words have reached Level 5 (level5Log.length), each with a short Czech
 // name so the badge reads as an achievement, not just a number.
@@ -136,6 +136,9 @@ const CHANGELOG = {
   ],
   "v2.71 · 2026-11-01": [
     "Opakování problémů: tlačítka Předchozí/Další jsou vždy hned pod kartičkou, nezávisle na tom, jestli má slovíčko obrázek",
+  ],
+  "v2.72 · 2026-11-02": [
+    "Nastavení: můžeš zvolit datum, od kterého se ve Statistikách počítají naučená slovíčka po měsících",
   ],
 };
 const STORAGE_KEY = "vocab-cards";
@@ -3468,6 +3471,34 @@ function VocabApp() {
                 <span className="vf-settings-unit">slovíček</span>
               </div>
             </div>
+
+            <div className="vf-help-section">
+              <h3>Počítání naučených slovíček</h3>
+              <p>
+                Od kterého dne appka ve Statistikách počítá naučená slovíčka po měsících (slovíčka,
+                která dosáhla Level 5). Dřívější záznamy se nesmažou, jen se nezobrazují. Když
+                datum nevyplníš, počítá se vše od začátku.
+              </p>
+              <div className="vf-settings-row">
+                <input
+                  type="date"
+                  className="vf-review-edit-input"
+                  style={{ marginBottom: 0, width: "auto", flex: 1, textAlign: "left" }}
+                  value={settings.learnedCountFrom || ""}
+                  max={todayStr()}
+                  onChange={(e) => saveSettings({ ...settings, learnedCountFrom: e.target.value || "" })}
+                />
+                {settings.learnedCountFrom && (
+                  <button
+                    className="vf-btn secondary"
+                    style={{ marginBottom: 0, width: "auto", padding: "10px 14px", fontSize: 13 }}
+                    onClick={() => saveSettings({ ...settings, learnedCountFrom: "" })}
+                  >
+                    Zrušit
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </>
       )}
@@ -4062,9 +4093,12 @@ function VocabApp() {
               ))}
 
               {(() => {
-                // Monthly breakdown of words that first reached Level 5
+                // Monthly breakdown of words that first reached Level 5, counted
+                // from the date chosen in Nastavení (everything if none is set).
+                const countFrom = settings.learnedCountFrom || "";
+                const countedLog = (level5Log || []).filter((entry) => !countFrom || entry.date >= countFrom);
                 const monthMap = {};
-                (level5Log || []).forEach((entry) => {
+                countedLog.forEach((entry) => {
                   const monthKey = entry.date.slice(0, 7);
                   monthMap[monthKey] = (monthMap[monthKey] || 0) + 1;
                 });
@@ -4076,8 +4110,9 @@ function VocabApp() {
                       Naučená slovíčka (dosáhla Level 5)
                     </div>
                     <p style={{ fontSize: 11.5, color: "#4a6580", margin: "0 0 12px" }}>
-                      Počítá se od {level5Log.length > 0 ? formatDayMonth(level5Log[0].date) : "teď"} — starší
-                      pokrok appka zpětně neznala.
+                      {countFrom
+                        ? `Počítá se od ${formatDayMonth(countFrom)} ${countFrom.slice(0, 4)} (nastaveno v Nastavení).`
+                        : `Počítá se od ${level5Log.length > 0 ? formatDayMonth(level5Log[0].date) : "teď"} — starší pokrok appka zpětně neznala.`}
                     </p>
                     {months.length === 0 ? (
                       <div className="vf-empty">Zatím žádné slovíčko nedosáhlo Level 5.</div>
