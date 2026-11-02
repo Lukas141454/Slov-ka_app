@@ -77,19 +77,17 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.66 · 2026-10-07";
+const APP_VERSION = "v2.71 · 2026-11-01";
 // Milestones for the "naučená slovíčka" badge wall — thresholds on how many
 // words have reached Level 5 (level5Log.length), each with a short Czech
 // name so the badge reads as an achievement, not just a number.
 const MILESTONES = [
-  { count: 10, name: "První desítka" },
-  { count: 25, name: "Rozkoukaný" },
-  { count: 50, name: "Padesátka" },
-  { count: 100, name: "Stovka" },
   { count: 250, name: "Čtvrttisícovka" },
   { count: 500, name: "Půltisícovka" },
   { count: 1000, name: "Tisícovka" },
   { count: 2000, name: "Dvoutisícovka" },
+  { count: 3000, name: "Třítisícovka" },
+  { count: 4000, name: "Čtyřtisícovka" },
 ];
 // Short "what's new" notes shown once per version, in a small dismissible
 // dialog when the app detects it was just updated. Only the CURRENT
@@ -123,6 +121,22 @@ const CHANGELOG = {
   "v2.66 · 2026-10-07": [
     "Interní příprava na další jazyky: slovíčka a balíčky si pamatují jazykový pár (zatím vždy česky–anglicky)",
   ],
+  "v2.67 · 2026-11-01": [
+    "Statistiky: odstraněno rozdělení naučených slovíček po týdnech, zůstaly měsíce",
+    "Odznaky: začínají od 250 slovíček, nově přibyly 3000 a 4000",
+  ],
+  "v2.68 · 2026-11-01": [
+    "Kalendářní mapka: den zezelená, až když splníš denní cíl učení (ne po první odpovědi)",
+  ],
+  "v2.69 · 2026-11-01": [
+    "Problémová slovíčka: slovíčko z nich zmizí, až se znovu dostane na Level 5 (dřív stačilo jedno „Znám“)",
+  ],
+  "v2.70 · 2026-11-01": [
+    "Podrobná nápověda: nová sekce o problémových slovíčkách — jak se do nich slovíčko dostane a jak z nich zmizí",
+  ],
+  "v2.71 · 2026-11-01": [
+    "Opakování problémů: tlačítka Předchozí/Další jsou vždy hned pod kartičkou, nezávisle na tom, jestli má slovíčko obrázek",
+  ],
 };
 const STORAGE_KEY = "vocab-cards";
 const SETTINGS_KEY = "vocab-settings";
@@ -135,13 +149,15 @@ const LAST_SEEN_VERSION_KEY = "vocab-last-seen-version";
 const STREAK_KEY = "vocab-streak";
 const LEVEL5_LOG_KEY = "vocab-level5-log";
 const ACTIVITY_DAYS_KEY = "vocab-activity-days";
+const GOAL_DAYS_KEY = "vocab-goal-days";
 const SCHEMA_VERSION_KEY = "vocab-schema-version";
 // Version of the stored data format (cards, backups). Bump whenever the
 // shape of saved data changes, and add a migration where data is loaded.
 //  5 = cards carry `source`/`packId` and `updatedAt`
 //  6 = backups can include `reviewLog` (one compact string per answer)
 //  7 = cards and packs carry `pair` (language pair, e.g. "cs-en")
-const DATA_SCHEMA_VERSION = 7;
+//  8 = backups can include `goalDays` (days the daily learning goal was met)
+const DATA_SCHEMA_VERSION = 8;
 // Language pair of a card/pack: "<native>-<learned>". The app only supports
 // Czech->English today, but every card and pack records its pair so more
 // pairs (pl-en, es-en…) can be added later without migrating user data.
@@ -184,21 +200,9 @@ function addDays(base, days) {
   d.setDate(d.getDate() + days);
   return dateToLocalStr(d);
 }
-// Monday-start week key for a given date string
-function getWeekStart(dateStr) {
-  const d = new Date(dateStr + "T00:00:00");
-  const day = d.getDay(); // 0=Sun..6=Sat
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diffToMonday);
-  return dateToLocalStr(d);
-}
 function formatDayMonth(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   return `${d.getDate()}. ${d.getMonth() + 1}.`;
-}
-function formatWeekLabel(mondayStr) {
-  const sundayStr = addDays(mondayStr, 6);
-  return `${formatDayMonth(mondayStr)} – ${formatDayMonth(sundayStr)}`;
 }
 const CZECH_MONTHS = [
   "leden", "únor", "březen", "duben", "květen", "červen",
@@ -463,6 +467,10 @@ function VocabApp() {
   // Dates (YYYY-MM-DD) on which at least one answer was given — feeds the
   // 14-day activity calendar. Recorded from the moment this was added.
   const [activityDays, setActivityDays] = useState([]);
+  // Dates on which the daily learning goal was met — drives the green
+  // squares in the 14-day calendar.
+  const [goalDays, setGoalDays] = useState([]);
+  const [goalDaysLoaded, setGoalDaysLoaded] = useState(false);
   // Per-month cache of the review log; only months touched this session are
   // loaded. Writes are debounced and flushed when the page is hidden/closed.
   const reviewLogRef = useRef({});
@@ -588,6 +596,24 @@ function VocabApp() {
   }, []);
 
   useEffect(() => {
+    if (!loaded || !goalDaysLoaded) return;
+    const credited = streakData.streakCreditedForDate;
+    if (!credited) return;
+    // The current streak is by definition a run of consecutive days on which
+    // the goal was met, ending on the last credited day — so those days can be
+    // recorded now, including ones from before goal days were tracked.
+    const run = [];
+    for (let i = 0; i < Math.max(1, streakData.streak || 1); i++) run.push(addDays(credited, -i));
+    setGoalDays((prev) => {
+      const missing = run.filter((d) => !prev.includes(d));
+      if (missing.length === 0) return prev;
+      const next = [...prev, ...missing].sort();
+      window.storage.set(GOAL_DAYS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, [loaded, goalDaysLoaded, streakData.streakCreditedForDate, streakData.streak]);
+
+  useEffect(() => {
     const TICK_SECONDS = 20; // granularity of time tracking during active review
     const reviewScreens = ["review", "problemReview"];
     const goalMinutes = settings.dailyGoalMinutes || 20;
@@ -699,6 +725,11 @@ function VocabApp() {
         const ad = await window.storage.get(ACTIVITY_DAYS_KEY);
         if (ad) setActivityDays(JSON.parse(ad.value));
       } catch {}
+      try {
+        const gd = await window.storage.get(GOAL_DAYS_KEY);
+        if (gd) setGoalDays(JSON.parse(gd.value));
+      } catch {}
+      setGoalDaysLoaded(true);
       try {
         const lv = await window.storage.get(LEVEL5_LOG_KEY);
         setLevel5Log(lv ? JSON.parse(lv.value) : []);
@@ -948,13 +979,14 @@ function VocabApp() {
     //   word you're seeing for the very first time is normal, not trouble.
     // - "Skoro" also counts now — repeatedly being "almost" sure is itself
     //   a sign the word isn't solid.
-    // - A solid "Znám" clears the slate.
+    // - The slate is cleared only when a "Znám" brings the word to Level 5
+    //   or higher — one lucky "Znám" at a low level isn't enough.
     let newDontCount = prog.dontCount || 0;
     if (result === "dont") {
       if (level >= 0) newDontCount += 1;
     } else if (result === "almost") {
       newDontCount += 1;
-    } else if (result === "know") {
+    } else if (result === "know" && newLevel >= 4) {
       newDontCount = 0;
     }
 
@@ -1054,7 +1086,9 @@ function VocabApp() {
       // trouble — it means the schedule badly overestimated the word.
       // A move up, or only a 1-level correction down, doesn't count.
       const levelDrop = currentLevel - targetLevel;
-      const newDontCount = levelDrop >= 2 ? (prog.dontCount || 0) + 2 : prog.dontCount || 0;
+      let newDontCount = levelDrop >= 2 ? (prog.dontCount || 0) + 2 : prog.dontCount || 0;
+      // Moving a word up to Level 5+ by hand also clears its trouble count.
+      if (targetLevel >= 4 && targetLevel > currentLevel) newDontCount = 0;
       markActivityToday();
       appendReviewLog(card.id, direction, "s", currentLevel, targetLevel);
       const justReachedLevel5 = logLevel5IfNeeded(card, targetLevel);
@@ -1300,6 +1334,7 @@ function VocabApp() {
       packs,
       level5Log,
       activityDays,
+      goalDays,
       reviewLog,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -1390,6 +1425,9 @@ function VocabApp() {
         if (Array.isArray(data.reviewLog)) {
           setPendingImportReviewLog(data.reviewLog.map(decodeReviewEntry).filter(Boolean));
         }
+        if (Array.isArray(data.goalDays)) {
+          setPendingImportGoalDays(data.goalDays.filter((d) => typeof d === "string"));
+        }
         if (Array.isArray(data.activityDays)) {
           setPendingImportActivityDays(data.activityDays.filter((d) => typeof d === "string"));
         }
@@ -1405,6 +1443,7 @@ function VocabApp() {
   const [pendingImportLevel5Log, setPendingImportLevel5Log] = useState(null);
   const [pendingImportActivityDays, setPendingImportActivityDays] = useState(null);
   const [pendingImportReviewLog, setPendingImportReviewLog] = useState(null);
+  const [pendingImportGoalDays, setPendingImportGoalDays] = useState(null);
 
   function saveLevel5Log(next) {
     setLevel5Log(next);
@@ -1439,6 +1478,11 @@ function VocabApp() {
   function confirmImport(mode) {
     if (!pendingImport) return;
     if (pendingImportReviewLog) importReviewLog(pendingImportReviewLog, mode);
+    if (pendingImportGoalDays) {
+      const mergedGoal = (mode === "replace" ? pendingImportGoalDays : Array.from(new Set([...(goalDays || []), ...pendingImportGoalDays]))).sort();
+      setGoalDays(mergedGoal);
+      window.storage.set(GOAL_DAYS_KEY, JSON.stringify(mergedGoal)).catch(() => {});
+    }
     if (pendingImportActivityDays) {
       const merged = mode === "replace" ? pendingImportActivityDays : Array.from(new Set([...(activityDays || []), ...pendingImportActivityDays]));
       setActivityDays(merged);
@@ -1469,6 +1513,7 @@ function VocabApp() {
     setPendingImportLevel5Log(null);
     setPendingImportActivityDays(null);
     setPendingImportReviewLog(null);
+    setPendingImportGoalDays(null);
   }
   function cancelImport() {
     setPendingImport(null);
@@ -1476,6 +1521,7 @@ function VocabApp() {
     setPendingImportLevel5Log(null);
     setPendingImportActivityDays(null);
     setPendingImportReviewLog(null);
+    setPendingImportGoalDays(null);
     setImportError("");
   }
 
@@ -3269,7 +3315,8 @@ function VocabApp() {
             <p style={{ fontSize: 13, color: "#4a6580", marginBottom: 16 }}>
               Slovíčka, která ti aktuálně dělají potíže — opakovaně „Skoro" nebo „Neznám" (u už
               zaběhnutého slovíčka, ne úplně nového), nebo jsi je ručně vrátil(a) o 2 a víc úrovní
-              zpátky. Zkus si k nim vymyslet vlastní pomůcku — poznámku si můžeš rovnou zapsat níže.
+              zpátky. Ze seznamu slovíčko zmizí, až se zase dostane na Level 5. Zkus si k nim vymyslet vlastní
+              pomůcku — poznámku si můžeš rovnou zapsat níže.
             </p>
 
             {getProblemCards(settings.direction).length > 0 && (
@@ -3533,12 +3580,13 @@ function VocabApp() {
               <h3>Přeskočit snadné slovíčko</h3>
               <p>
                 Pokud narazíš na slovíčko, které bezpečně znáš, nemusíš čekat, až appka postupně
-                zvýší úroveň. Během opakování můžeš kartičku poslat rovnou na Level 4 (za týden),
-                Level 5 (za 14 dní), Level 6 (za 30 dní) nebo Level 7 (za 60 dní).
+                zvýší úroveň. Během opakování můžeš kartičku poslat rovnou na jednu z úrovní Level 2
+                až Level 7 (např. Level 5 = za 14 dní, Level 7 = za 60 dní).
               </p>
               <p>
-                Appka nikdy úroveň nesníží — pokud je slovíčko už na vyšší úrovni, než na jakou ho
-                zkusíš poslat, nic se nezmění a appka jen pokračuje na další kartičku.
+                Slovíčko se nastaví přesně na úroveň, na kterou klepneš — nahoru i dolů. Když ho
+                takhle vrátíš o 2 a víc úrovní níž, appka to bere jako znamení potíží (viz
+                Problémová slovíčka níže).
               </p>
             </div>
 
@@ -3547,6 +3595,46 @@ function VocabApp() {
               <p>
                 Appka sleduje pokrok zvlášť pro směr česky→anglicky a zvlášť pro anglicky→česky.
                 Slovíčko, které umíš skvěle jedním směrem, může být v opačném směru na jiné (nižší) úrovni.
+              </p>
+            </div>
+
+            <div className="vf-help-section">
+              <h3>Problémová slovíčka</h3>
+              <p>
+                Appka si u každého slovíčka počítá „body potíží“. Jakmile má slovíčko <b>2 a víc
+                bodů</b>, objeví se v sekci Problémová slovíčka (na úvodní obrazovce) a vedle něj
+                je vidět, kolik potíží nasbíralo.
+              </p>
+              <p><b>Jak se tam slovíčko dostane:</b></p>
+              <table className="vf-help-table">
+                <tbody>
+                  <tr><td>Odpověď „Skoro“</td><td>+1 bod</td></tr>
+                  <tr><td>Odpověď „Neznám“</td><td>+1 bod</td></tr>
+                  <tr><td>Ruční vrácení o 2 a víc úrovní níž</td><td>+2 body</td></tr>
+                </tbody>
+              </table>
+              <p>
+                „Neznám“ se nepočítá u úplně nového slovíčka (úroveň „Nové“) — když ho vidíš
+                poprvé, je normální ho neznat. Body se sčítají, takže slovíčko se tam dostane
+                třeba po dvou „Skoro“ nebo po „Skoro“ a „Neznám“, nikoli po jedné chybě.
+              </p>
+              <p><b>Jak z nich slovíčko zmizí:</b></p>
+              <p>
+                Až se slovíčko <b>znovu dostane na Level 5 nebo výš</b> — buď odpovíš „Znám“ a
+                slovíčko tím postoupí na Level 5 (nebo výš), nebo ho při opakování ručně přeskočíš na
+                Level 5 a výš. Teprve tím se jeho body potíží vynulují.
+              </p>
+              <p>
+                Jedno „Znám“ na nižší úrovni slovíčko z problémových nevyndá, a „Skoro“ ani
+                „Neznám“ taky ne — slovíčko musí projít zpátky nahoru až na Level 5. Slovíčko, které
+                je už na Levelu 5 nebo výš a stále je v problémových, zmizí při své příští odpovědi
+                „Znám“. Smazáním slovíčka z appky zmizí i ze seznamu.
+              </p>
+              <p>
+                Body potíží se počítají <b>zvlášť pro každý směr</b> (česky→anglicky a
+                anglicky→česky), a sekce ukazuje ten směr, který máš právě zvolený. Obrazovka
+                Problémová slovíčka slouží k procházení a psaní poznámek, body potíží se na ní
+                nemění.
               </p>
             </div>
 
@@ -3913,13 +4001,13 @@ function VocabApp() {
               </div>
 
               {(() => {
-                const activeDays = new Set(activityDays);
+                const activeDays = new Set(goalDays);
                 const days = lastNDays(14);
                 return (
                   <>
                     <div className="vf-sub" style={{ margin: "22px 0 4px" }}>Posledních 14 dní</div>
                     <p style={{ fontSize: 11.5, color: "#4a6580", margin: "0 0 10px" }}>
-                      Zelený den = odpověděl jsi aspoň na jedno slovíčko. Zaznamenává se od v2.62, dřívější dny jsou šedé.
+                      Zelený den = splnil jsi denní cíl učení. Dny před poslední sérií appka zpětně nezná, ty jsou šedé.
                     </p>
                     <div className="vf-calendar-grid">
                       {days.map((d) => (
@@ -3974,18 +4062,13 @@ function VocabApp() {
               ))}
 
               {(() => {
-                // Weekly breakdown of words that first reached Level 5
-                const weekMap = {};
+                // Monthly breakdown of words that first reached Level 5
                 const monthMap = {};
                 (level5Log || []).forEach((entry) => {
-                  const weekKey = getWeekStart(entry.date);
-                  weekMap[weekKey] = (weekMap[weekKey] || 0) + 1;
                   const monthKey = entry.date.slice(0, 7);
                   monthMap[monthKey] = (monthMap[monthKey] || 0) + 1;
                 });
-                const weeks = Object.keys(weekMap).sort((a, b) => (a < b ? 1 : -1));
                 const months = Object.keys(monthMap).sort((a, b) => (a < b ? 1 : -1));
-                const maxWeekCount = Math.max(1, ...weeks.map((w) => weekMap[w]));
 
                 return (
                   <>
@@ -3996,24 +4079,11 @@ function VocabApp() {
                       Počítá se od {level5Log.length > 0 ? formatDayMonth(level5Log[0].date) : "teď"} — starší
                       pokrok appka zpětně neznala.
                     </p>
-                    {weeks.length === 0 ? (
+                    {months.length === 0 ? (
                       <div className="vf-empty">Zatím žádné slovíčko nedosáhlo Level 5.</div>
                     ) : (
                       <>
                         <div className="vf-sub" style={{ margin: "14px 0 8px", textTransform: "none", letterSpacing: 0 }}>
-                          Po týdnech
-                        </div>
-                        {weeks.map((w) => (
-                          <div className="vf-stat-bar-row" key={w}>
-                            <span className="vf-stat-bar-label" style={{ width: 88 }}>{formatWeekLabel(w)}</span>
-                            <div className="vf-stat-bar-track">
-                              <div className="vf-stat-bar-fill" style={{ width: `${(weekMap[w] / maxWeekCount) * 100}%` }} />
-                            </div>
-                            <span className="vf-stat-bar-count">{weekMap[w]}</span>
-                          </div>
-                        ))}
-
-                        <div className="vf-sub" style={{ margin: "18px 0 8px", textTransform: "none", letterSpacing: 0 }}>
                           Po měsících
                         </div>
                         {months.map((m) => (
@@ -4397,6 +4467,14 @@ function VocabApp() {
                   </div>
                 </div>
               </div>
+              <div className="vf-problem-nav-row" style={{ marginTop: 14, marginBottom: 14 }}>
+                <button className="vf-btn secondary" style={{ marginBottom: 0 }} disabled={problemIndex === 0} onClick={prevProblemCard}>
+                  <ArrowLeft size={18} /> Předchozí
+                </button>
+                <button className="vf-btn secondary" style={{ marginBottom: 0 }} disabled={problemIndex >= problemQueue.length - 1} onClick={nextProblemCard}>
+                  Další <ArrowRight size={18} />
+                </button>
+              </div>
               {!problemFlipped && (
                 <div className="vf-hint-big-wrap">
                   <button
@@ -4420,16 +4498,6 @@ function VocabApp() {
                 <p style={{ fontSize: 12.5, color: "#4a6580", textAlign: "center", marginTop: 4, marginBottom: 16 }}>
                   💡 {card.note}
                 </p>
-              )}
-              {problemFlipped && (
-                <div className="vf-problem-nav-row">
-                  <button className="vf-btn secondary" style={{ marginBottom: 0 }} disabled={problemIndex === 0} onClick={prevProblemCard}>
-                    <ArrowLeft size={18} /> Předchozí
-                  </button>
-                  <button className="vf-btn secondary" style={{ marginBottom: 0 }} disabled={problemIndex >= problemQueue.length - 1} onClick={nextProblemCard}>
-                    Další <ArrowRight size={18} />
-                  </button>
-                </div>
               )}
               {problemIndex >= problemQueue.length - 1 && (
                 <button className="vf-btn secondary" style={{ marginTop: 16 }} onClick={() => setScreen("problems")}>
