@@ -77,7 +77,7 @@ const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-
 const ImageIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>;
 
 const INTERVALS = [1, 2, 4, 7, 14, 30, 60, 120];
-const APP_VERSION = "v2.72 · 2026-11-02";
+const APP_VERSION = "v2.75 · 2026-11-03";
 // Milestones for the "naučená slovíčka" badge wall — thresholds on how many
 // words have reached Level 5 (level5Log.length), each with a short Czech
 // name so the badge reads as an achievement, not just a number.
@@ -139,6 +139,15 @@ const CHANGELOG = {
   ],
   "v2.72 · 2026-11-02": [
     "Nastavení: můžeš zvolit datum, od kterého se ve Statistikách počítají naučená slovíčka po měsících",
+  ],
+  "v2.73 · 2026-11-02": [
+    "Odznaky: nadpis a popis vysvětlují, že se počítají naučená slovíčka (aspoň jednou na Levelu 5), a ukazují aktuální počet",
+  ],
+  "v2.74 · 2026-11-02": [
+    "Opakování: obrazovka teď sedí přesně na displej a neposouvá se (jen když by se obsah opravdu nevešel)",
+  ],
+  "v2.75 · 2026-11-03": [
+    "Nadpisy v záhlaví (např. Opakování) jsou přesně vycentrované",
   ],
 };
 const STORAGE_KEY = "vocab-cards";
@@ -592,6 +601,15 @@ function VocabApp() {
   const onboardingTouchStartX = useRef(null);
   useEffect(() => {
     screenRef.current = screen;
+  }, [screen]);
+
+  // Review screens fit exactly into the visible screen: the page itself
+  // never scrolls there (only the area inside scrolls if it ever has to,
+  // e.g. on a very short phone or with a tall image).
+  useEffect(() => {
+    const lock = screen === "review" || screen === "problemReview";
+    document.documentElement.classList.toggle("vf-lock", lock);
+    return () => document.documentElement.classList.remove("vf-lock");
   }, [screen]);
 
   useEffect(() => {
@@ -1618,6 +1636,24 @@ function VocabApp() {
       box-shadow: 0 0 40px rgba(0,0,0,0.06);
       overflow-x: hidden;
     }
+    html.vf-lock, html.vf-lock body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+    html.vf-lock #root { min-height: 0; height: 100vh; height: 100dvh; }
+    html.vf-lock .vf-root { min-height: 0; height: 100%; overflow: hidden; }
+    html.vf-lock .vf-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    }
+    /* Header with back button / title / actions: the title is truly
+       centered regardless of how wide the buttons on either side are. */
+    .vf-header.vf-header-centered {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+    }
+    .vf-header.vf-header-centered > :first-child { justify-self: start; }
+    .vf-header.vf-header-centered > :last-child { justify-self: end; }
     .vf-header {
       padding: 26px 22px 16px;
       border-bottom: none;
@@ -3177,7 +3213,7 @@ function VocabApp() {
         const totalIssues = enGroups.length + czGroups.length + phrasePairs.length;
         return (
           <>
-            <div className="vf-header">
+            <div className="vf-header vf-header-centered">
               <button className="vf-icon-btn" onClick={() => setScreen("list")}><ArrowLeft size={20} color="#1e3a5f" /></button>
               <div className="vf-title" style={{ fontSize: 26 }}>Duplicity</div>
               <div style={{ width: 20 }} />
@@ -3309,7 +3345,7 @@ function VocabApp() {
 
       {screen === "problems" && (
         <>
-          <div className="vf-header">
+          <div className="vf-header vf-header-centered">
             <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
             <div className="vf-title" style={{ fontSize: 26 }}>Problémová slovíčka</div>
             <div style={{ width: 20 }} />
@@ -3421,7 +3457,7 @@ function VocabApp() {
 
       {screen === "settings" && (
         <>
-          <div className="vf-header">
+          <div className="vf-header vf-header-centered">
             <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
             <div className="vf-title" style={{ fontSize: 26 }}>Nastavení</div>
             <div style={{ width: 20 }} />
@@ -3505,7 +3541,7 @@ function VocabApp() {
 
       {screen === "about" && (
         <>
-          <div className="vf-header">
+          <div className="vf-header vf-header-centered">
             <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
             <div className="vf-title" style={{ fontSize: 26 }}>O appce</div>
             <div style={{ width: 20 }} />
@@ -3530,7 +3566,7 @@ function VocabApp() {
 
       {screen === "tips" && (
         <>
-          <div className="vf-header">
+          <div className="vf-header vf-header-centered">
             <button className="vf-icon-btn" onClick={() => setScreen("about")}><ArrowLeft size={20} color="#1e3a5f" /></button>
             <div className="vf-title" style={{ fontSize: 24 }}>Jak se učit</div>
             <div style={{ width: 20 }} />
@@ -3570,7 +3606,7 @@ function VocabApp() {
 
       {screen === "help" && (
         <>
-          <div className="vf-header">
+          <div className="vf-header vf-header-centered">
             <button className="vf-icon-btn" onClick={() => setScreen("about")}><ArrowLeft size={20} color="#1e3a5f" /></button>
             <div className="vf-title" style={{ fontSize: 26 }}>Jak to funguje</div>
             <div style={{ width: 20 }} />
@@ -3905,7 +3941,7 @@ function VocabApp() {
 
       {screen === "add" && (
         <>
-          <div className="vf-header">
+          <div className="vf-header vf-header-centered">
             <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
             <div className="vf-title" style={{ fontSize: 26 }}>Nová slovíčka</div>
             <div style={{ width: 20 }} />
@@ -4057,11 +4093,17 @@ function VocabApp() {
                 const nextMilestone = MILESTONES.find((m) => m.count > learnedCount);
                 return (
                   <>
-                    <div className="vf-sub" style={{ margin: "26px 0 4px" }}>Odznaky</div>
-                    <p style={{ fontSize: 11.5, color: "#4a6580", margin: "0 0 12px" }}>
+                    <div className="vf-sub" style={{ margin: "26px 0 4px" }}>Odznaky za naučená slovíčka</div>
+                    <p style={{ fontSize: 11.5, color: "#4a6580", margin: "0 0 6px" }}>
+                      Odznaky dostáváš za počet <b>naučených</b> slovíček. Naučené je slovíčko, které
+                      aspoň jednou dosáhlo Levelu 5 (ne každé, které jsi přidal do učení). Každé se
+                      počítá jen jednou a číslo neklesá, ani když slovíčko později vrátíš na nižší úroveň.
+                    </p>
+                    <p style={{ fontSize: 12.5, color: "var(--ink)", fontWeight: 600, margin: "0 0 12px" }}>
+                      Naučeno: {learnedCount} {wordCountLabel(learnedCount)}
                       {nextMilestone
-                        ? `Ještě ${nextMilestone.count - learnedCount} ${wordCountLabel(nextMilestone.count - learnedCount)} do odznaku „${nextMilestone.name}".`
-                        : "Všechny odznaky splněny — appka na další zatím nemá limit."}
+                        ? ` · do odznaku „${nextMilestone.name}" (${nextMilestone.count}) zbývá ${nextMilestone.count - learnedCount}`
+                        : " · všechny odznaky splněny"}
                     </p>
                     <div className="vf-badge-grid">
                       {MILESTONES.map((m) => {
@@ -4257,7 +4299,7 @@ function VocabApp() {
         }
         return (
           <>
-            <div className="vf-header">
+            <div className="vf-header vf-header-centered">
               <button className="vf-icon-btn" onClick={() => setScreen("home")}><ArrowLeft size={20} color="#1e3a5f" /></button>
               <div className="vf-title" style={{ fontSize: 26 }}>Opakování</div>
               {editingId === card.id ? (
@@ -4448,7 +4490,7 @@ function VocabApp() {
         }
         return (
           <>
-            <div className="vf-header">
+            <div className="vf-header vf-header-centered">
               <button className="vf-icon-btn" onClick={() => setScreen("problems")}><ArrowLeft size={20} color="#1e3a5f" /></button>
               <div className="vf-title" style={{ fontSize: 26 }}>Opakování problémů</div>
               <div style={{ width: 20 }} />
